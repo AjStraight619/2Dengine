@@ -7,6 +7,7 @@ pub const EngineOptions = struct {
     draw_forces: bool = false,
     draw_velocities: bool = true,
     draw_normals: bool = false,
+    draw_aabbs: bool = false,
     target_fps: i32 = 60,
 };
 
@@ -45,6 +46,16 @@ pub fn parseArgs(allocator: std.mem.Allocator) !EngineOptions {
                 options.target_fps = try std.fmt.parseInt(i32, args[i], 10);
                 std.debug.print("Target FPS set to {d}\n", .{options.target_fps});
             }
+        } else if (std.mem.eql(u8, arg, "--draw-aabbs")) {
+            options.draw_aabbs = true;
+            std.debug.print("AABBs enabled\n", .{});
+        } else if (std.mem.eql(u8, arg, "--all")) {
+            options.debug_mode = true;
+            options.collision_logging = true;
+            options.draw_forces = true;
+            options.draw_normals = true;
+            options.draw_aabbs = true;
+            std.debug.print("All options enabled\n", .{});
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printHelp();
         }
