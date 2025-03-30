@@ -1,21 +1,40 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
+//! ZigEngine - Main executable
+//! This demonstrates how to use the engine
+
+const std = @import("std");
+const rl = @import("raylib");
+const ze = @import("zigengine_lib");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    // Initialize allocator
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    // Parse command-line arguments
+    const options = try ze.core.args.parseArgs(allocator);
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    // Initialize the engine with the parsed options
+    var game_engine = try ze.core.Engine.init(allocator, 800, 600, "ZigEngine Demo", options);
+    defer game_engine.deinit();
 
-    try bw.flush(); // Don't forget to flush!
+    // Define empty handlers for the engine run
+    const dummyHandleInput = struct {
+        fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
+            _ = ctx;
+            _ = eng;
+        }
+    }.handleInput;
+
+    const dummyUpdate = struct {
+        fn update(ctx: *anyopaque, eng: *ze.core.Engine, dt: f32) !void {
+            _ = ctx;
+            _ = eng;
+            _ = dt;
+        }
+    }.update;
+
+    try game_engine.run(@ptrCast(&game_engine), dummyHandleInput, dummyUpdate);
 }
 
 test "simple test" {
@@ -39,8 +58,6 @@ test "fuzz example" {
     };
     try std.testing.fuzz(Context{}, Context.testOne, .{});
 }
-
-const std = @import("std");
 
 /// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
 const lib = @import("zigengine_lib");

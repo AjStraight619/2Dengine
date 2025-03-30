@@ -15,6 +15,68 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    // Get raylib dependency
+    const raylib_dep = b.dependency("raylib", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Get raylib module
+    const raylib_module = raylib_dep.module("raylib");
+
+    // Get the raylib artifact for linking
+    const raylib_artifact = raylib_dep.artifact("raylib");
+
+    // Create all our engine modules
+    const physics_mod = b.createModule(.{
+        .root_source_file = b.path("src/physics/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const input_mod = b.createModule(.{
+        .root_source_file = b.path("src/input/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const renderer_mod = b.createModule(.{
+        .root_source_file = b.path("src/renderer/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const core_mod = b.createModule(.{
+        .root_source_file = b.path("src/core/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Set up module dependencies
+    physics_mod.addImport("raylib", raylib_module);
+    input_mod.addImport("raylib", raylib_module);
+    renderer_mod.addImport("raylib", raylib_module);
+    renderer_mod.addImport("physics", physics_mod);
+
+    core_mod.addImport("physics", physics_mod);
+    core_mod.addImport("input", input_mod);
+    core_mod.addImport("renderer", renderer_mod);
+    core_mod.addImport("raylib", raylib_module);
+
+    // Create the main engine module
+    const engine_mod = b.createModule(.{
+        .root_source_file = b.path("src/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Engine module depends on all other modules
+    engine_mod.addImport("core", core_mod);
+    engine_mod.addImport("physics", physics_mod);
+    engine_mod.addImport("input", input_mod);
+    engine_mod.addImport("renderer", renderer_mod);
+    engine_mod.addImport("raylib", raylib_module);
+
     // This creates a "module", which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Every executable or library we compile will be based on one or more modules.
@@ -27,6 +89,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    // Add raylib import to the library module
+    lib_mod.addImport("raylib", raylib_module);
+    lib_mod.addImport("engine", engine_mod);
 
     // We will also create a module for our other entry point, 'main.zig'.
     const exe_mod = b.createModule(.{
@@ -44,6 +110,9 @@ pub fn build(b: *std.Build) void {
     // file path. In this case, we set up `exe_mod` to import `lib_mod`.
     exe_mod.addImport("zigengine_lib", lib_mod);
 
+    // Add raylib import to the executable module
+    exe_mod.addImport("raylib", raylib_module);
+
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
     // for actually invoking the compiler.
@@ -52,6 +121,9 @@ pub fn build(b: *std.Build) void {
         .name = "zigengine",
         .root_module = lib_mod,
     });
+
+    // Link against the raylib artifact
+    lib.linkLibrary(raylib_artifact);
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
@@ -64,6 +136,9 @@ pub fn build(b: *std.Build) void {
         .name = "zigengine",
         .root_module = exe_mod,
     });
+
+    // Link against the raylib artifact
+    exe.linkLibrary(raylib_artifact);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -113,4 +188,53 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    // Build examples
+    const examples_step = b.step("examples", "Build all examples");
+
+    // Define the examples to build
+    const examples = [_]struct { name: []const u8, path: []const u8 }{
+        .{ .name = "basic", .path = "examples/basic/main.zig" },
+        .{ .name = "collision", .path = "examples/collision/main.zig" },
+    };
+
+    for (examples) |example| {
+        // Create a module for this example
+        const example_mod = b.createModule(.{
+            .root_source_file = b.path(example.path),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        // Add dependencies
+        example_mod.addImport("raylib", raylib_module);
+        example_mod.addImport("zigengine_lib", lib_mod);
+
+        // Create the executable
+        const example_exe = b.addExecutable(.{
+            .name = example.name,
+            .root_module = example_mod,
+        });
+
+        // Link against raylib
+        example_exe.linkLibrary(raylib_artifact);
+
+        // Install the example to the "examples" output directory
+        b.installArtifact(example_exe);
+
+        // Create a run step for this example
+        const run_example_cmd = b.addRunArtifact(example_exe);
+
+        // Allow passing args to the example
+        if (b.args) |args| {
+            run_example_cmd.addArgs(args);
+        }
+
+        // Create a step specifically for this example
+        const run_example_step = b.step(b.fmt("run-{s}", .{example.name}), b.fmt("Run the {s} example", .{example.name}));
+        run_example_step.dependOn(&run_example_cmd.step);
+
+        // Add this example to the general examples step
+        examples_step.dependOn(&example_exe.step);
+    }
 }
