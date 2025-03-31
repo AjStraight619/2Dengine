@@ -327,11 +327,13 @@ fn aabbVsAabb(pos_a: Vector2, width_a: f32, height_a: f32, pos_b: Vector2, width
 
     // Add a bias for vertical collisions to reduce sliding
     // This helps with objects resting on top of each other
-    const vertical_bias = 1.1; // 10% bias for vertical collisions
+    const vertical_bias = 1.2; // 20% bias for vertical collisions (increased from 10%)
 
     // Apply vertical bias only when the difference is within a threshold and one object is above the other
-    const is_vertical_stack = @abs(delta.x) < half_width_a + half_width_b * 0.8 and
-        @abs(delta.y) > 0;
+    // Improved vertical stack detection - check if objects are roughly aligned horizontally
+    // and have a meaningful vertical separation
+    const is_vertical_stack = @abs(delta.x) < (half_width_a + half_width_b) * 0.95 and
+        @abs(delta.y) > 0.05;
 
     if (is_vertical_stack and y_overlap < x_overlap * vertical_bias) {
         // Use Y axis (vertical collision)
@@ -341,11 +343,15 @@ fn aabbVsAabb(pos_a: Vector2, width_a: f32, height_a: f32, pos_b: Vector2, width
     } else if (x_overlap < y_overlap) {
         // X axis has less penetration
         mtv.x = if (delta.x < 0) -1.0 else 1.0;
+        // Ensure purely horizontal MTV with zero y component to prevent unwanted vertical movement
+        mtv.y = 0.0;
         depth = x_overlap;
         std.debug.print("Using horizontal collision\n", .{});
     } else {
         // Y axis has less penetration
         mtv.y = if (delta.y < 0) -1.0 else 1.0;
+        // Ensure purely vertical MTV with zero x component to prevent unwanted horizontal sliding
+        mtv.x = 0.0;
         depth = y_overlap;
         std.debug.print("Using vertical collision\n", .{});
     }
@@ -355,11 +361,8 @@ fn aabbVsAabb(pos_a: Vector2, width_a: f32, height_a: f32, pos_b: Vector2, width
     const contact_count: u8 = 1;
 
     if (@abs(mtv.x) > 0.5) {
-        // Contact along x-axis
-        const contact_y = if (min_a.y > min_b.y)
-            @min(max_a.y, max_b.y) - (min_a.y - min_b.y) / 2.0
-        else
-            @min(max_a.y, max_b.y) - (min_b.y - min_a.y) / 2.0;
+        // Contact along x-axis - use the center of the overlapping region for better stability
+        const contact_y = (@min(max_a.y, max_b.y) + @max(min_a.y, min_b.y)) * 0.5;
 
         if (mtv.x > 0) {
             // Contact on A's right edge
@@ -369,11 +372,9 @@ fn aabbVsAabb(pos_a: Vector2, width_a: f32, height_a: f32, pos_b: Vector2, width
             contacts[0] = Vector2.init(min_a.x, contact_y);
         }
     } else {
-        // Contact along y-axis
-        const contact_x = if (min_a.x > min_b.x)
-            @min(max_a.x, max_b.x) - (min_a.x - min_b.x) / 2.0
-        else
-            @min(max_a.x, max_b.x) - (min_b.x - min_a.x) / 2.0;
+        // Contact along y-axis - improved contact point calculation for better stability
+        // Use the midpoint of the overlapping region for more stability
+        const contact_x = (@min(max_a.x, max_b.x) + @max(min_a.x, min_b.x)) * 0.5;
 
         if (mtv.y > 0) {
             // Contact on A's bottom edge

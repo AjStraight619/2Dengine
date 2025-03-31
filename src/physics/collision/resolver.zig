@@ -40,22 +40,27 @@ pub const CollisionResolver = struct {
         std.debug.print("Collision normal: ({d:.4},{d:.4}), depth: {d:.4}\n", .{ collision.normal.x, collision.normal.y, collision.depth });
 
         // Check if this is a horizontal collision between rectangles
-        const is_horizontal = @abs(collision.normal.x) > 0.8;
+        const is_horizontal = @abs(collision.normal.x) > 0.9; // Increased threshold for more accurate detection
         const is_rect_vs_rect = a.shape == .rectangle and b.shape == .rectangle;
         const horizontal_rect_collision = is_horizontal and is_rect_vs_rect;
+
+        // Check for vertical collision with ground
+        const is_vertical = @abs(collision.normal.y) > 0.9;
+        const is_ground_collision = is_vertical and collision.normal.y < 0;
+        const vertical_rect_ground_collision = is_ground_collision and is_rect_vs_rect;
 
         // Use different correction factors based on collision orientation and types
         var correction_factor: f32 = 1.01; // Default small bias
 
-        // For horizontal rect-rect collisions, use stronger correction to prevent sticking
+        // For horizontal rect-rect collisions, use stable correction
         if (horizontal_rect_collision) {
-            correction_factor = 1.2; // 20% stronger correction
-            std.debug.print("HORIZONTAL rect-rect collision - using stronger position correction: {d}\n", .{correction_factor});
+            correction_factor = 1.05; // Reduced from 1.2 for more stable behavior
+            std.debug.print("HORIZONTAL rect-rect collision - using moderate position correction: {d}\n", .{correction_factor});
         }
-        // For top collisions (normal pointing up), use stronger correction
-        else if (collision.normal.y < -0.8) {
-            correction_factor = 1.1; // 10% stronger correction for top collisions
-            std.debug.print("TOP collision - using stronger position correction: {d}\n", .{correction_factor});
+        // For ground collisions (normal pointing up), use stronger correction
+        else if (vertical_rect_ground_collision) {
+            correction_factor = 1.1; // 10% stronger correction for ground collisions
+            std.debug.print("GROUND collision - using stronger position correction: {d}\n", .{correction_factor});
         }
 
         const correction_depth = collision.depth * correction_factor;
@@ -116,17 +121,28 @@ pub const CollisionResolver = struct {
         const normal_velocity = relative_velocity.dot(collision.normal);
         std.debug.print("Relative velocity along normal: {d:.4}\n", .{normal_velocity});
 
-        // If objects are moving away fast enough, skip impulse
-        const separation_tolerance = 0.01; // Very small tolerance
+        // Better separation handling - only skip if objects are DEFINITELY separating
+        // Increase separation tolerance for horizontal collisions to prevent sticking
+        var separation_tolerance: f32 = 0.001; // Default very small tolerance
+
+        // Check if this is a horizontal collision between rectangles
+        const is_horizontal = @abs(collision.normal.x) > 0.9;
+        const is_rect_vs_rect = a.shape == .rectangle and b.shape == .rectangle;
+        const horizontal_rect_collision = is_horizontal and is_rect_vs_rect;
+
+        if (horizontal_rect_collision) {
+            // Much higher tolerance for horizontal rectangle collisions
+            separation_tolerance = 0.05; // 50x higher tolerance for horizontal rect collisions
+        }
+
         if (normal_velocity > separation_tolerance) {
             std.debug.print("Objects DEFINITELY separating, skipping impulse\n", .{});
             return;
         }
 
-        // Check if this is a horizontal collision between rectangles (for special handling)
-        const is_horizontal = @abs(collision.normal.x) > 0.8;
-        const is_rect_vs_rect = a.shape == .rectangle and b.shape == .rectangle;
-        const horizontal_rect_collision = is_horizontal and is_rect_vs_rect;
+        // Check if this is a vertical collision between rectangles
+        const is_vertical = @abs(collision.normal.y) > 0.9;
+        const vertical_rect_collision = is_vertical and is_rect_vs_rect;
 
         // Calculate impulse factors
         const ra_cross_n = ra.cross(collision.normal);
@@ -141,11 +157,20 @@ pub const CollisionResolver = struct {
         // Calculate restitution based on collision type
         var restitution = collision.restitution;
 
-        // Enhance restitution for horizontal rectangle collisions to improve bouncing
+        // For horizontal rectangles, drastically reduce restitution to prevent bouncing
         if (horizontal_rect_collision) {
-            // Increase bounce effect for horizontal collisions
-            restitution *= 1.2;
-            std.debug.print("Horizontal rect-rect collision: enhancing restitution to {d:.4}\n", .{restitution});
+            // Near-zero restitution for horizontal collisions
+            restitution *= 0.1;
+            std.debug.print("Horizontal rect-rect collision: reducing restitution to {d:.4}\n", .{restitution});
+        }
+
+        // Reduce restitution for vertical collisions as well
+        if (vertical_rect_collision) {
+            // Objects resting on top of each other should have less bounce
+            if (collision.normal.y < 0 and @abs(normal_velocity) < 1.0) {
+                restitution *= 0.06; // Reduced to 6% of original restitution
+                std.debug.print("Vertical rect-rect collision (top): reducing restitution to {d:.4}\n", .{restitution});
+            }
         }
 
         // Reduce bounciness for low-speed collisions (linear damping)
@@ -194,38 +219,48 @@ pub const CollisionResolver = struct {
         const tangent_length = tangent.length();
 
         // Skip friction if negligible tangential velocity
-        // Use different thresholds based on collision type
+        var tangent_threshold: f32 = 0.1; // Default threshold
+
+        // Horizontal rectangle collisions need smaller threshold for better responsiveness
         if (is_horizontal_rect_collision) {
-            // Lower threshold for horizontal rect collisions
-            if (tangent_length < 0.01) {
-                std.debug.print("Horizontal rect collision: skipping friction due to minimal tangential velocity\n", .{});
-                return;
-            }
-        } else {
-            // Standard threshold for other collisions
-            if (tangent_length < 0.1) {
-                std.debug.print("Skipping friction due to minimal tangential velocity\n", .{});
-                return;
-            }
+            tangent_threshold = 0.01; // 10x more sensitive for horizontal collisions
+        }
+
+        if (tangent_length < tangent_threshold) {
+            std.debug.print("Skipping friction due to minimal tangential velocity: {d:.4}\n", .{tangent_length});
+            return;
         }
 
         // Normalize tangent
         tangent = tangent.scale(1.0 / tangent_length);
 
-        // Adjust friction coefficient for horizontal rect-rect collisions
+        // Adjust friction coefficient for different collision types
         var friction = collision.friction;
+
+        // Special case for rectangle vs rectangle horizontal collisions
         if (is_horizontal_rect_collision) {
-            // Reduce friction for horizontal collisions to prevent sticking
-            friction *= 0.7;
-            std.debug.print("Horizontal rect-rect collision: reducing friction to {d:.4}\n", .{friction});
+            // Use higher friction for horizontal collisions
+            friction *= 2.0; // Double friction for horizontal rect collisions
+            std.debug.print("Horizontal rect-rect collision: increasing friction to {d:.4}\n", .{friction});
+        }
+
+        // Special case for vertical collisions (floor/ceiling)
+        if (@abs(collision.normal.y) > 0.9 and a.shape == .rectangle and b.shape == .rectangle) {
+            // Higher friction for resting on surfaces
+            friction *= 1.5; // Increased to improve stability on platforms
+            std.debug.print("Vertical rect-rect collision: increasing friction to {d:.4}\n", .{friction});
         }
 
         // Calculate and apply friction impulse with adjusted magnitude
-        var friction_j = -relative_velocity.dot(tangent) * friction * 0.5 * @abs(normal_impulse);
+        var friction_j = -relative_velocity.dot(tangent) * friction;
 
-        // Cap friction impulse
-        if (@abs(friction_j) > @abs(normal_impulse) * friction) {
-            friction_j = -@abs(normal_impulse) * friction * std.math.sign(friction_j);
+        // Limit friction impulse more strictly for horizontal collisions to prevent sticking
+        if (is_horizontal_rect_collision) {
+            // Stricter limit for horizontal collisions
+            friction_j = @min(friction_j, @abs(normal_impulse) * friction * 0.8);
+        } else {
+            // Normal case
+            friction_j = @min(friction_j, @abs(normal_impulse) * friction);
         }
 
         // Convert to vector and apply
