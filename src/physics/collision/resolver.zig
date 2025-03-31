@@ -2,6 +2,7 @@ const Vector2 = @import("../geometry/vector2.zig").Vector2;
 const RigidBody = @import("../body/body.zig").RigidBody;
 const Collision = @import("detector.zig").Collision;
 const std = @import("std");
+const detector = @import("detector.zig");
 
 /// Collision resolution system
 pub const CollisionResolver = struct {
@@ -104,6 +105,18 @@ pub const CollisionResolver = struct {
             return;
         }
 
+        // Check for extremely high velocities and log them
+        const vel_a_len = a.velocity.length();
+        const vel_b_len = b.velocity.length();
+        const velocity_threshold: f32 = 500.0;
+
+        if (vel_a_len > velocity_threshold or vel_b_len > velocity_threshold) {
+            std.debug.print("\n🚨 EXTREME VELOCITY DURING RESOLUTION:\n", .{});
+            std.debug.print("  A: vel={d:.2} at ({d:.2},{d:.2})\n", .{ vel_a_len, a.position.x, a.position.y });
+            std.debug.print("  B: vel={d:.2} at ({d:.2},{d:.2})\n", .{ vel_b_len, b.position.x, b.position.y });
+            std.debug.print("  Normal: ({d:.2},{d:.2}), depth: {d:.2}\n", .{ collision.normal.x, collision.normal.y, collision.depth });
+        }
+
         std.debug.print(">>> VELOCITY RESOLUTION <<<\n", .{});
         std.debug.print("Before: A vel=({d:.6},{d:.6}), B vel=({d:.6},{d:.6})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
 
@@ -185,18 +198,18 @@ pub const CollisionResolver = struct {
         }
 
         // Reduce bounciness for low-speed collisions (linear damping)
-        const velocity_threshold = 10.0;
-        if (@abs(normal_velocity) < velocity_threshold) {
-            restitution *= @abs(normal_velocity) / velocity_threshold;
+        const velocity_threshold_for_damping = 10.0;
+        if (@abs(normal_velocity) < velocity_threshold_for_damping) {
+            restitution *= @abs(normal_velocity) / velocity_threshold_for_damping;
         }
 
         // Calculate impulse magnitude
         var j = -(1.0 + restitution) * normal_velocity / inv_mass_sum;
 
-        // Cap impulse to avoid numerical explosions
-        const max_impulse = 1000.0;
+        // Cap impulse to avoid numerical explosions - REDUCED MAX IMPULSE FOR STABILITY
+        const max_impulse = 500.0; // Significantly reduced from 1000.0
         if (@abs(j) > max_impulse) {
-            std.debug.print("WARNING: Capping excessive impulse from {d:.4} to {d:.4}\n", .{ j, std.math.sign(j) * max_impulse });
+            std.debug.print("⚠️ EXCESSIVE IMPULSE CAPPED: {d:.4} → {d:.4}\n", .{ j, std.math.sign(j) * max_impulse });
             j = std.math.sign(j) * max_impulse;
         }
 
@@ -214,6 +227,18 @@ pub const CollisionResolver = struct {
 
         // Log after applying impulse
         std.debug.print("After impulse: A vel=({d:.6},{d:.6}), B vel=({d:.6},{d:.6})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
+
+        // Check for sudden large changes in velocity - could indicate instability
+        const new_vel_a_len = a.velocity.length();
+        const new_vel_b_len = b.velocity.length();
+        const velocity_change_a = @abs(new_vel_a_len - vel_a_len);
+        const velocity_change_b = @abs(new_vel_b_len - vel_b_len);
+
+        if (velocity_change_a > 100.0 or velocity_change_b > 100.0) {
+            std.debug.print("⚠️ LARGE VELOCITY CHANGE DETECTED!\n", .{});
+            std.debug.print("  A: {d:.2} → {d:.2} (change: {d:.2})\n", .{ vel_a_len, new_vel_a_len, velocity_change_a });
+            std.debug.print("  B: {d:.2} → {d:.2} (change: {d:.2})\n", .{ vel_b_len, new_vel_b_len, velocity_change_b });
+        }
 
         // Apply friction
         applyFriction(a, b, collision, relative_velocity, normal_velocity, j, ra, rb, horizontal_rect_collision);
@@ -236,7 +261,6 @@ pub const CollisionResolver = struct {
     fn applyFriction(a: *RigidBody, b: *RigidBody, collision: Collision, relative_velocity: Vector2, normal_velocity: f32, normal_impulse: f32, ra: Vector2, rb: Vector2, is_horizontal_rect_collision: bool) void {
         // Check for vertical collision condition (for resting objects)
         const is_vertical = @abs(collision.normal.y) > 0.9;
-        const vertical_rect_collision = is_vertical and (a.shape == .rectangle and b.shape == .rectangle);
 
         // Calculate tangent vector (perpendicular to normal)
         var tangent = relative_velocity.sub(collision.normal.scale(normal_velocity));
@@ -250,63 +274,87 @@ pub const CollisionResolver = struct {
             tangent_threshold = 0.01; // 10x more sensitive for horizontal collisions
         }
 
-        // For vertical resting objects (floors), use a higher threshold to dampen jitter
-        if (vertical_rect_collision and @abs(normal_velocity) < 0.1) {
-            tangent_threshold = 0.2; // Higher threshold to prevent tiny friction movements when at rest
-
-            // Log for debugging jitter
-            if (@abs(tangent_length) < 0.5 and @abs(normal_velocity) < 0.01) {
-                std.debug.print("JITTER-DEBUG: Minimal friction for resting object, tangent_length={d:.8}\n", .{tangent_length});
-            }
-        }
-
         if (tangent_length < tangent_threshold) {
             std.debug.print("Skipping friction due to minimal tangential velocity: {d:.4}\n", .{tangent_length});
             return;
         }
 
-        // Normalize tangent
+        // Normalize tangent vector
         tangent = tangent.scale(1.0 / tangent_length);
 
-        // Adjust friction coefficient for different collision types
-        var friction = collision.friction;
+        // Calculate friction impulse factor
+        // Coulomb's Law of Friction (max_friction = mu * normal_force)
+        var friction_coef = (a.friction * b.friction);
 
-        // Special case for rectangle vs rectangle horizontal collisions
+        // Reduce friction for horizontal collisions (helps prevent sticking)
         if (is_horizontal_rect_collision) {
-            // Use higher friction for horizontal collisions
-            friction *= 2.0; // Double friction for horizontal rect collisions
-            std.debug.print("Horizontal rect-rect collision: increasing friction to {d:.4}\n", .{friction});
+            friction_coef *= 0.7; // 30% reduction for horizontal collisions
         }
 
-        // Special case for vertical collisions (floor/ceiling)
-        if (vertical_rect_collision) {
-            // Higher friction for resting on surfaces
-            friction *= 1.5; // Increased to improve stability on platforms
-            std.debug.print("Vertical rect-rect collision: increasing friction to {d:.4}\n", .{friction});
+        // Reduce friction for vertical resting contacts to reduce jitter
+        if (is_vertical and @abs(relative_velocity.y) < 0.05) {
+            friction_coef *= 0.5; // 50% reduction for resting contacts
+        }
 
-            // Log additional diagnostics for near-rest collisions
-            if (@abs(normal_velocity) < 0.05) {
-                std.debug.print("JITTER-DEBUG: Resting friction calculation with normal_velocity={d:.8}\n", .{normal_velocity});
+        // Calculate friction impulse magnitude (limited by normal impulse)
+        var j_t = -(relative_velocity.dot(tangent)) / (a.inverse_mass + b.inverse_mass +
+            (ra.cross(tangent) * ra.cross(tangent)) * a.inverse_inertia +
+            (rb.cross(tangent) * rb.cross(tangent)) * b.inverse_inertia);
+
+        // Clamp friction impulse magnitude
+        const max_friction = @abs(normal_impulse * friction_coef);
+        if (@abs(j_t) > max_friction) {
+            j_t = if (j_t > 0.0) max_friction else -max_friction;
+        }
+
+        // Calculate friction impulse vector
+        const friction_impulse = tangent.scale(j_t);
+
+        // Store initial velocities for debugging
+        const a_vel_before = a.velocity;
+        const b_vel_before = b.velocity;
+
+        // Debug print the friction impulse
+        std.debug.print("Friction impulse: ({d:.4},{d:.4})\n", .{ friction_impulse.x, friction_impulse.y });
+
+        // CRITICAL FIX: Don't apply friction in the y-direction if it would cause the object to move upward
+        var safe_friction_impulse = friction_impulse;
+
+        // For objects on the ground (vertical collision with normal pointing up)
+        if (is_vertical and collision.normal.y < 0) {
+            // If friction would cause object to move upward, zero out the y component
+            if ((a.body_type == .dynamic and (a.velocity.y < 0 and friction_impulse.y * a.inverse_mass > @abs(a.velocity.y))) or
+                (b.body_type == .dynamic and (b.velocity.y < 0 and friction_impulse.y * b.inverse_mass < -@abs(b.velocity.y))))
+            {
+                std.debug.print("⚠️ PREVENTING INVALID UPWARD FRICTION!\n", .{});
+                safe_friction_impulse.y = 0;
             }
         }
 
-        // Calculate and apply friction impulse with adjusted magnitude
-        var friction_j = -relative_velocity.dot(tangent) * friction;
-
-        // Limit friction impulse more strictly for horizontal collisions to prevent sticking
-        if (is_horizontal_rect_collision) {
-            // Stricter limit for horizontal collisions
-            friction_j = @min(friction_j, @abs(normal_impulse) * friction * 0.8);
-        } else {
-            // Normal case
-            friction_j = @min(friction_j, @abs(normal_impulse) * friction);
+        // Apply friction impulse
+        if (a.body_type == .dynamic) {
+            a.velocity = a.velocity.add(safe_friction_impulse.scale(-a.inverse_mass));
+            a.angular_velocity -= ra.cross(safe_friction_impulse) * a.inverse_inertia;
         }
 
-        // Convert to vector and apply
-        const friction_impulse = tangent.scale(friction_j);
-        std.debug.print("Friction impulse: ({d:.4},{d:.4})\n", .{ friction_impulse.x, friction_impulse.y });
+        if (b.body_type == .dynamic) {
+            b.velocity = b.velocity.add(safe_friction_impulse.scale(b.inverse_mass));
+            b.angular_velocity += rb.cross(safe_friction_impulse) * b.inverse_inertia;
+        }
 
-        applyImpulse(a, b, friction_impulse, ra, rb);
+        // Check if friction caused significant vertical velocity changes (could indicate instability)
+        if (a.body_type == .dynamic and b.body_type == .dynamic) {
+            // Check if signs flipped (negative to positive or vice versa) - indicates unstable friction
+            const a_y_sign_changed = (a_vel_before.y < 0 and a.velocity.y > 0) or (a_vel_before.y > 0 and a.velocity.y < 0);
+            const b_y_sign_changed = (b_vel_before.y < 0 and b.velocity.y > 0) or (b_vel_before.y > 0 and b.velocity.y < 0);
+
+            if (a_y_sign_changed or b_y_sign_changed) {
+                std.debug.print("🚨 UNSTABLE FRICTION DETECTED: Vertical velocity direction changed!\n", .{});
+                std.debug.print("  A: y-vel {d:.6} → {d:.6}\n", .{ a_vel_before.y, a.velocity.y });
+                std.debug.print("  B: y-vel {d:.6} → {d:.6}\n", .{ b_vel_before.y, b.velocity.y });
+                detector.unstable_friction_count += 1;
+            }
+        }
     }
 
     /// Calculate relative velocity at a contact point

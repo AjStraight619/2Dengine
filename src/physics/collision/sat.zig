@@ -36,23 +36,13 @@ pub fn testCollision(a: *const RigidBody, b: *const RigidBody) SATResult {
     };
 
     // Log collision result
-    if (result.collision) {
-        std.debug.print("\n=== COLLISION DETECTED ===\n", .{});
-        std.debug.print("Type: {s} vs {s}\n", .{ @tagName(a.shape), @tagName(b.shape) });
-        std.debug.print("A pos: ({d:.4}, {d:.4}), B pos: ({d:.4}, {d:.4})\n", .{ a.position.x, a.position.y, b.position.x, b.position.y });
-        std.debug.print("MTV: ({d:.4}, {d:.4}), Depth: {d:.4}\n", .{ result.mtv.x, result.mtv.y, result.depth });
-        std.debug.print("Contact points: {d} [({d:.4}, {d:.4}), ({d:.4}, {d:.4})]\n", .{ result.contact_count, result.contact_points[0].x, result.contact_points[0].y, result.contact_points[1].x, result.contact_points[1].y });
-    }
+    if (result.collision) {}
 
     return result;
 }
 
 /// Test collision between two circles
 fn circleVsCircle(pos_a: Vector2, circle_a: Circle, pos_b: Vector2, circle_b: Circle) SATResult {
-    // Debug info
-    std.debug.print("\n--- Circle vs Circle Test ---\n", .{});
-    std.debug.print("Circle A: pos=({d:.4}, {d:.4}), radius={d:.4}\n", .{ pos_a.x, pos_a.y, circle_a.radius });
-    std.debug.print("Circle B: pos=({d:.4}, {d:.4}), radius={d:.4}\n", .{ pos_b.x, pos_b.y, circle_b.radius });
 
     // Calculate distance between centers
     const delta = pos_b.sub(pos_a);
@@ -61,11 +51,8 @@ fn circleVsCircle(pos_a: Vector2, circle_a: Circle, pos_b: Vector2, circle_b: Ci
     // Sum of radii
     const radius_sum = circle_a.radius + circle_b.radius;
 
-    std.debug.print("Distance^2={d:.4}, Radius sum^2={d:.4}\n", .{ distance_squared, radius_sum * radius_sum });
-
     // Check if circles overlap
     if (distance_squared >= radius_sum * radius_sum) {
-        std.debug.print("No collision detected\n", .{});
         return SATResult{
             .collision = false,
             .mtv = Vector2.zero(),
@@ -101,10 +88,6 @@ fn circleVsCircle(pos_a: Vector2, circle_a: Circle, pos_b: Vector2, circle_b: Ci
 
 /// Test collision between a circle and a rectangle
 fn circleVsRectangle(circle_pos: Vector2, circle: Circle, rect_pos: Vector2, rect: Rectangle) SATResult {
-    // Debug info
-    std.debug.print("\n--- Circle vs Rectangle Test ---\n", .{});
-    std.debug.print("Circle: pos=({d:.4}, {d:.4}), radius={d:.4}\n", .{ circle_pos.x, circle_pos.y, circle.radius });
-    std.debug.print("Rectangle: pos=({d:.4}, {d:.4}), size=({d:.4}x{d:.4}), angle={d:.4}\n", .{ rect_pos.x, rect_pos.y, rect.width, rect.height, rect.angle });
 
     // Get the rectangle's half extents
     const half_width = rect.width * 0.5;
@@ -115,14 +98,11 @@ fn circleVsRectangle(circle_pos: Vector2, circle: Circle, rect_pos: Vector2, rec
 
     // If rectangle is rotated, rotate the circle's position
     if (!rect.isAxisAligned()) {
-        std.debug.print("Rectangle is rotated, transforming circle to local space\n", .{});
         // Rotate circle position by negative of rectangle's angle
         const cos_angle = @cos(-rect.angle);
         const sin_angle = @sin(-rect.angle);
         local_circle_pos = Vector2.init(local_circle_pos.x * cos_angle - local_circle_pos.y * sin_angle, local_circle_pos.x * sin_angle + local_circle_pos.y * cos_angle);
     }
-
-    std.debug.print("Circle in rect local space: ({d:.4}, {d:.4})\n", .{ local_circle_pos.x, local_circle_pos.y });
 
     // Find closest point on rectangle to circle center
     const closest_x = std.math.clamp(local_circle_pos.x, -half_width, half_width);
@@ -190,17 +170,11 @@ fn rectangleVsCircle(rect_pos: Vector2, rect: Rectangle, circle_pos: Vector2, ci
 /// Test collision between two rectangles using SAT
 fn rectangleVsRectangle(pos_a: Vector2, rect_a: Rectangle, pos_b: Vector2, rect_b: Rectangle) SATResult {
     // Debug info
-    std.debug.print("\n--- Rectangle vs Rectangle Test ---\n", .{});
-    std.debug.print("Rect A: pos=({d:.4}, {d:.4}), size=({d:.4}x{d:.4}), angle={d:.4}\n", .{ pos_a.x, pos_a.y, rect_a.width, rect_a.height, rect_a.angle });
-    std.debug.print("Rect B: pos=({d:.4}, {d:.4}), size=({d:.4}x{d:.4}), angle={d:.4}\n", .{ pos_b.x, pos_b.y, rect_b.width, rect_b.height, rect_b.angle });
 
     // Fast case: Both rectangles are axis-aligned
     if (rect_a.isAxisAligned() and rect_b.isAxisAligned()) {
-        std.debug.print("Both rectangles are axis-aligned, using AABB test\n", .{});
         return aabbVsAabb(pos_a, rect_a.width, rect_a.height, pos_b, rect_b.width, rect_b.height);
     }
-
-    std.debug.print("Using full SAT for oriented rectangles\n", .{});
 
     // Full SAT for oriented rectangles
     // Get half-extents
@@ -295,9 +269,6 @@ fn aabbVsAabb(pos_a: Vector2, width_a: f32, height_a: f32, pos_b: Vector2, width
     const min_b = Vector2.init(pos_b.x - half_width_b, pos_b.y - half_height_b);
     const max_b = Vector2.init(pos_b.x + half_width_b, pos_b.y + half_height_b);
 
-    std.debug.print("AABB A: min=({d:.4}, {d:.4}), max=({d:.4}, {d:.4})\n", .{ min_a.x, min_a.y, max_a.x, max_a.y });
-    std.debug.print("AABB B: min=({d:.4}, {d:.4}), max=({d:.4}, {d:.4})\n", .{ min_b.x, min_b.y, max_b.x, max_b.y });
-
     // Check for overlap
     if (min_a.x > max_b.x or max_a.x < min_b.x or
         min_a.y > max_b.y or max_a.y < min_b.y)
@@ -316,11 +287,8 @@ fn aabbVsAabb(pos_a: Vector2, width_a: f32, height_a: f32, pos_b: Vector2, width
     const x_overlap = @min(max_a.x, max_b.x) - @max(min_a.x, min_b.x);
     const y_overlap = @min(max_a.y, max_b.y) - @max(min_a.y, min_b.y);
 
-    std.debug.print("Overlap: x={d:.4}, y={d:.4}\n", .{ x_overlap, y_overlap });
-
     // Calculate vector from center of A to center of B
     const delta = pos_b.sub(pos_a);
-    std.debug.print("Delta vector: ({d:.4}, {d:.4})\n", .{ delta.x, delta.y });
 
     var mtv = Vector2.zero();
     var depth: f32 = 0;

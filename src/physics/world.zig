@@ -117,6 +117,14 @@ pub const PhysicsWorld = struct {
         // 1. Update body positions using integration
         self.integrateForces(dt);
 
+        // Sanitize all bodies to prevent numerical instability
+        for (self.bodies.items) |body| {
+            body.sanitizeState();
+
+            // Update sleep state
+            body.updateSleepState(dt);
+        }
+
         // 2. Detect and resolve collisions with multiple iterations for stability
         for (0..self.position_iterations) |_| {
             self.detectAndResolveCollisions() catch {};
@@ -129,10 +137,15 @@ pub const PhysicsWorld = struct {
 
         // 4. Reset forces for next frame
         for (self.bodies.items) |body| {
-            if (body.body_type == .dynamic) {
+            if (body.body_type == .dynamic and !body.is_sleeping) {
                 body.force = Vector2.zero();
                 body.torque = 0.0;
             }
+        }
+
+        // Log collision count if it's large
+        if (self.collision_count > 50) {
+            std.debug.print("📊 COLLISION COUNT: {d} collisions this frame\n", .{self.collision_count});
         }
     }
 

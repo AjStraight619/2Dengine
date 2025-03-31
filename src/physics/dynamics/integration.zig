@@ -35,6 +35,7 @@ pub const Integrator = struct {
     /// Semi-implicit Euler integration (better stability)
     pub fn semiImplicitEuler(body: *RigidBody, dt: f32, gravity: Vector2) void {
         if (body.body_type == .static) return;
+        if (body.is_sleeping) return; // Skip integration for sleeping bodies
 
         // Apply gravity
         body.applyForce(gravity.scale(body.mass));

@@ -149,6 +149,17 @@ pub const BroadPhase = struct {
 
                     // Check if AABBs overlap
                     if (aabbOverlap(body_a.aabb, body_b.aabb)) {
+                        // Log extreme velocities (might indicate instability)
+                        const vel_a_len = body_a.velocity.length();
+                        const vel_b_len = body_b.velocity.length();
+                        const high_velocity_threshold: f32 = 1000.0;
+
+                        if (vel_a_len > high_velocity_threshold or vel_b_len > high_velocity_threshold) {
+                            std.debug.print("⚠️ HIGH VELOCITY DETECTED! Body A vel={d:.2}, Body B vel={d:.2}\n", .{ vel_a_len, vel_b_len });
+                            std.debug.print("  Body A pos=({d:.2},{d:.2}), Body B pos=({d:.2},{d:.2})\n", .{ body_a.position.x, body_a.position.y, body_b.position.x, body_b.position.y });
+                            std.debug.print("  Body A type={s}, Body B type={s}\n", .{ @tagName(body_a.body_type), @tagName(body_b.body_type) });
+                        }
+
                         try pairs.append(BodyPair{
                             .a = @constCast(body_a),
                             .b = @constCast(body_b),
@@ -156,6 +167,11 @@ pub const BroadPhase = struct {
                     }
                 }
             }
+        }
+
+        // Log collision count if it's very high
+        if (pairs.items.len > 100) {
+            std.debug.print("⚠️ HIGH COLLISION COUNT: {d} potential collisions\n", .{pairs.items.len});
         }
 
         return pairs;
