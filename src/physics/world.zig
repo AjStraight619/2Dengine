@@ -6,6 +6,7 @@ const BodyType = @import("body/body.zig").BodyType;
 const collision = @import("collision/mod.zig");
 const factory = @import("body/factory.zig");
 const options = @import("body/options.zig");
+const Integrator = @import("dynamics/integration.zig").Integrator;
 
 pub const PhysicsWorld = struct {
     allocator: std.mem.Allocator,
@@ -28,8 +29,8 @@ pub const PhysicsWorld = struct {
     collision_count: usize = 0,
 
     // Physics tuning settings
-    velocity_iterations: usize = 8,
-    position_iterations: usize = 6,
+    velocity_iterations: usize = 4,
+    position_iterations: usize = 3,
 
     pub fn init(allocator: std.mem.Allocator) PhysicsWorld {
         return PhysicsWorld{
@@ -39,8 +40,8 @@ pub const PhysicsWorld = struct {
             .broadphase = collision.Broadphase.init(allocator),
             .recent_collisions = std.ArrayList(collision.Collision).init(allocator),
             .contact_points = std.ArrayList(Vector2).init(allocator),
-            .velocity_iterations = 8,
-            .position_iterations = 6,
+            .velocity_iterations = 4,
+            .position_iterations = 3,
         };
     }
 
@@ -120,7 +121,7 @@ pub const PhysicsWorld = struct {
 
         // Use small substeps to improve collision detection for fast-moving objects
         // More substeps = more accurate but more CPU intensive
-        const substeps: usize = 32; // Reduced from 128 for better performance
+        const substeps: usize = 8; // Reduced from 32 for better performance
         const substep_dt = current_dt / @as(f32, @floatFromInt(substeps));
 
         // Run physics simulation with substeps
@@ -151,7 +152,6 @@ pub const PhysicsWorld = struct {
     /// Apply physics integration to update positions based on forces
     fn integrateForces(self: *PhysicsWorld, dt: f32) void {
         // Use the specified integrator for simulation
-        const Integrator = @import("dynamics/integration.zig").Integrator;
 
         for (self.bodies.items) |body| {
             // Using semi-implicit Euler for better stability
@@ -213,5 +213,10 @@ pub const PhysicsWorld = struct {
     /// Get the number of collisions from the last frame
     pub fn getCollisionCount(self: PhysicsWorld) usize {
         return self.collision_count;
+    }
+
+    // New method to configure the broadphase
+    pub fn configureBroadphase(self: *PhysicsWorld, cell_size: f32) void {
+        self.broadphase.setCellSize(cell_size);
     }
 };

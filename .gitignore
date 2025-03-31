@@ -25,3 +25,5 @@ zig-out/
 *.su
 *.idb
 *.pdb
+
+documentation.md
