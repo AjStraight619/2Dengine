@@ -84,6 +84,7 @@ pub const BroadPhase = struct {
         }
 
         // Create spatial hash map: cell hash -> bodies in that cell
+        const grid_create_start = std.time.nanoTimestamp();
         var grid = std.AutoHashMap(u64, std.ArrayList(*const RigidBody)).init(self.allocator);
         defer {
             var it = grid.valueIterator();
@@ -92,8 +93,10 @@ pub const BroadPhase = struct {
             }
             grid.deinit();
         }
+        _ = grid_create_start; // Used for timing in debug builds
 
         // Insert bodies into cells they overlap
+        const insert_start = std.time.nanoTimestamp();
         for (bodies) |body| {
             // Get all cells this body's AABB overlaps
             const min_cell_x = @as(i32, @intFromFloat(@floor(body.aabb.min_x / self.cell_size)));
@@ -117,21 +120,40 @@ pub const BroadPhase = struct {
                 }
             }
         }
+        const insert_end = std.time.nanoTimestamp();
+        const insert_time = @as(i64, @intCast(insert_end - insert_start));
+
+        if (insert_time > 5_000_000) { // 5ms
+            std.debug.print("⏱️ SLOW BROADPHASE GRID INSERT: {d:.2}ms for {d} bodies\n", .{ @as(f64, @floatFromInt(insert_time)) / 1_000_000.0, bodies.len });
+        }
 
         // Track pairs we've already checked to avoid duplicates
+        const pair_check_start = std.time.nanoTimestamp();
         var checked_pairs = std.AutoHashMap(u64, void).init(self.allocator);
         defer checked_pairs.deinit();
 
         // For each cell, check bodies in that cell for potential collisions
         var it = grid.valueIterator();
+        var max_cell_bodies: usize = 0;
+        var cell_count: usize = 0;
+
         while (it.next()) |bodies_in_cell| {
+            cell_count += 1;
             const cell_bodies = bodies_in_cell.items;
+            max_cell_bodies = @max(max_cell_bodies, cell_bodies.len);
 
             // Check all pairs in this cell
             for (cell_bodies, 0..) |body_a, i| {
                 for (cell_bodies[i + 1 ..]) |body_b| {
                     // Skip if both bodies are static (they can't move, so won't collide)
                     if (body_a.body_type == .static and body_b.body_type == .static) {
+                        continue;
+                    }
+
+                    // Skip if either body is sleeping
+                    if ((body_a.body_type == .dynamic and body_a.is_sleeping) and
+                        (body_b.body_type == .dynamic and body_b.is_sleeping))
+                    {
                         continue;
                     }
 
@@ -149,17 +171,6 @@ pub const BroadPhase = struct {
 
                     // Check if AABBs overlap
                     if (aabbOverlap(body_a.aabb, body_b.aabb)) {
-                        // Log extreme velocities (might indicate instability)
-                        const vel_a_len = body_a.velocity.length();
-                        const vel_b_len = body_b.velocity.length();
-                        const high_velocity_threshold: f32 = 1000.0;
-
-                        if (vel_a_len > high_velocity_threshold or vel_b_len > high_velocity_threshold) {
-                            std.debug.print("⚠️ HIGH VELOCITY DETECTED! Body A vel={d:.2}, Body B vel={d:.2}\n", .{ vel_a_len, vel_b_len });
-                            std.debug.print("  Body A pos=({d:.2},{d:.2}), Body B pos=({d:.2},{d:.2})\n", .{ body_a.position.x, body_a.position.y, body_b.position.x, body_b.position.y });
-                            std.debug.print("  Body A type={s}, Body B type={s}\n", .{ @tagName(body_a.body_type), @tagName(body_b.body_type) });
-                        }
-
                         try pairs.append(BodyPair{
                             .a = @constCast(body_a),
                             .b = @constCast(body_b),
@@ -168,10 +179,11 @@ pub const BroadPhase = struct {
                 }
             }
         }
+        const pair_check_end = std.time.nanoTimestamp();
+        const pair_check_time = @as(i64, @intCast(pair_check_end - pair_check_start));
 
-        // Log collision count if it's very high
-        if (pairs.items.len > 100) {
-            std.debug.print("⚠️ HIGH COLLISION COUNT: {d} potential collisions\n", .{pairs.items.len});
+        if (pair_check_time > 5_000_000) { // 5ms
+            std.debug.print("⏱️ SLOW BROADPHASE PAIR CHECK: {d:.2}ms for {d} cells (max {d} bodies per cell)\n", .{ @as(f64, @floatFromInt(pair_check_time)) / 1_000_000.0, cell_count, max_cell_bodies });
         }
 
         return pairs;

@@ -259,47 +259,63 @@ pub const CollisionResolver = struct {
 
     /// Apply friction impulse
     fn applyFriction(a: *RigidBody, b: *RigidBody, collision: Collision, relative_velocity: Vector2, normal_velocity: f32, normal_impulse: f32, ra: Vector2, rb: Vector2, is_horizontal_rect_collision: bool) void {
+        _ = is_horizontal_rect_collision; // Parameter still needed for API compatibility
+
         // Check for vertical collision condition (for resting objects)
         const is_vertical = @abs(collision.normal.y) > 0.9;
+        const is_ground_collision = is_vertical and collision.normal.y < 0;
 
         // Calculate tangent vector (perpendicular to normal)
         var tangent = relative_velocity.sub(collision.normal.scale(normal_velocity));
         const tangent_length = tangent.length();
 
-        // Skip friction if negligible tangential velocity
-        var tangent_threshold: f32 = 0.1; // Default threshold
-
-        // Horizontal rectangle collisions need smaller threshold for better responsiveness
-        if (is_horizontal_rect_collision) {
-            tangent_threshold = 0.01; // 10x more sensitive for horizontal collisions
+        // Only normalize if tangent has meaningful length
+        if (tangent_length > 0.0001) {
+            tangent = tangent.scale(1.0 / tangent_length);
+        } else {
+            // For objects resting (almost zero tangent vel), assume horizontal friction direction
+            if (is_ground_collision) {
+                // Create a horizontal friction direction for rolling objects
+                tangent = Vector2.init(1.0, 0.0);
+                std.debug.print("GROUND CONTACT: Using horizontal friction for rolling objects\n", .{});
+            } else {
+                // For other cases, try to get a perpendicular vector to the normal
+                if (@abs(collision.normal.x) > @abs(collision.normal.y)) {
+                    tangent = Vector2.init(0.0, 1.0);
+                } else {
+                    tangent = Vector2.init(1.0, 0.0);
+                }
+            }
         }
-
-        if (tangent_length < tangent_threshold) {
-            std.debug.print("Skipping friction due to minimal tangential velocity: {d:.4}\n", .{tangent_length});
-            return;
-        }
-
-        // Normalize tangent vector
-        tangent = tangent.scale(1.0 / tangent_length);
 
         // Calculate friction impulse factor
         // Coulomb's Law of Friction (max_friction = mu * normal_force)
         var friction_coef = (a.friction * b.friction);
 
-        // Reduce friction for horizontal collisions (helps prevent sticking)
-        if (is_horizontal_rect_collision) {
-            friction_coef *= 0.7; // 30% reduction for horizontal collisions
-        }
-
-        // Reduce friction for vertical resting contacts to reduce jitter
-        if (is_vertical and @abs(relative_velocity.y) < 0.05) {
-            friction_coef *= 0.5; // 50% reduction for resting contacts
+        // Special case: Increase friction for ground contacts to properly handle rolling
+        if (is_ground_collision) {
+            // Both static and kinetic friction apply to rolling objects on ground
+            if (tangent_length < 0.1) {
+                // Static friction (rolling resistance) - slightly stronger
+                friction_coef *= 1.2;
+                std.debug.print("ROLLING RESISTANCE: Applying static friction to rolling object\n", .{});
+            }
         }
 
         // Calculate friction impulse magnitude (limited by normal impulse)
         var j_t = -(relative_velocity.dot(tangent)) / (a.inverse_mass + b.inverse_mass +
             (ra.cross(tangent) * ra.cross(tangent)) * a.inverse_inertia +
             (rb.cross(tangent) * rb.cross(tangent)) * b.inverse_inertia);
+
+        // Ensure minimum friction for very slow-moving objects on ground
+        if (is_ground_collision and @abs(j_t) < 0.01 and
+            ((@abs(a.velocity.x) > 0.01 and a.body_type == .dynamic) or
+                (@abs(b.velocity.x) > 0.01 and b.body_type == .dynamic)))
+        {
+            // Ensure we apply at least some friction for rolling objects
+            j_t = if (relative_velocity.x > 0) -0.01 else 0.01;
+            std.debug.print("MINIMUM FRICTION: Ensuring rolling objects slow down\n", .{});
+        }
 
         // Clamp friction impulse magnitude
         const max_friction = @abs(normal_impulse * friction_coef);

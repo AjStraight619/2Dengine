@@ -22,6 +22,8 @@ pub fn main() !void {
     game_engine.physics_world.setDebugDrawCollisions(true);
     game_engine.physics_world.setDebugDrawContacts(true);
     game_engine.physics_world.setCollisionLogging(true);
+    game_engine.setFixedTimeStep(1.0 / 120.0); // 120Hz physics updates instead of 60Hz
+    game_engine.setTargetFps(120);
 
     // Set zero gravity to test pure horizontal movement
     game_engine.physics_world.gravity = ze.math.Vector2.init(0, 0);
@@ -174,6 +176,19 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
             .velocity = ze.math.Vector2.init(-200, 0),
         });
     }
+
+    // Print performance info with P key
+    if (rl.isKeyPressed(rl.KeyboardKey.p)) {
+        const object_count = self.physics_world.bodies.items.len;
+        std.debug.print("\n--- Performance Info ---\n", .{});
+        std.debug.print("Objects: {d}\n", .{object_count});
+        std.debug.print("FPS: {d}\n", .{rl.getFPS()});
+        std.debug.print("Target physics rate: {d}Hz\n", .{@round(1.0 / self.fixed_time_step)});
+        std.debug.print("Collisions per frame: {d}\n", .{self.physics_world.collision_count});
+
+        // Force detailed diagnostics for next frame
+        self.physics_world.forceDiagnostics();
+    }
 }
 
 // Update callback
@@ -182,7 +197,8 @@ fn update(ctx: *anyopaque, eng: *ze.core.Engine, dt: f32) !void {
     _ = eng;
     _ = dt;
 
-    // Draw instructions
-    rl.drawText("LEFT/RIGHT: Apply force | A: Add box from left | D: Add box from right | R: Reset", 10, 10, 20, rl.Color.white);
+    // Draw instructions (split into two lines for better readability)
+    rl.drawText("LEFT/RIGHT: Apply force | A/D: Add boxes | R: Reset | P: Performance | O: Overlay | D: Debug", 10, 10, 20, rl.Color.white);
+    rl.drawText("Debug toggles: V: Velocities | F: Forces | N: Normals | B: AABBs", 10, 35, 20, rl.Color.dark_gray);
     rl.drawText("HORIZONTAL COLLISION TEST (NO GRAVITY)", 200, 570, 20, rl.Color.white);
 }

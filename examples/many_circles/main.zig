@@ -21,6 +21,7 @@ const PerformanceMetrics = struct {
 // Global counters to track physics statistics
 var g_total_circles: usize = 0;
 var g_sleeping_bodies: usize = 0;
+var g_verbose_logging: bool = false;
 
 pub fn main() !void {
     // Initialize allocator
@@ -160,6 +161,13 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
         self.physics_renderer.debug_mode = !self.physics_renderer.debug_mode;
         self.physics_world.setDebugDrawCollisions(self.physics_renderer.debug_mode);
         self.physics_world.setDebugDrawContacts(self.physics_renderer.debug_mode);
+    }
+
+    // Toggle verbose logging with V key
+    if (rl.isKeyPressed(rl.KeyboardKey.v)) {
+        g_verbose_logging = !g_verbose_logging;
+        self.physics_world.setCollisionLogging(g_verbose_logging);
+        std.debug.print("\nVerbose logging: {}\n", .{g_verbose_logging});
     }
 
     // Display performance information with P key

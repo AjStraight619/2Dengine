@@ -5,6 +5,7 @@ const physics = @import("../physics/mod.zig");
 const input_module = @import("../input/mod.zig");
 const renderer = @import("../renderer/mod.zig");
 const args_module = @import("args.zig");
+const debug_module = @import("debug.zig");
 
 pub const Engine = struct {
     physics_world: physics.PhysicsWorld,
@@ -23,6 +24,9 @@ pub const Engine = struct {
     fixed_time_step: f32 = 1.0 / 60.0, // Default physics step at 60Hz
     time_accumulator: f32 = 0.0,
     time_scale: f32 = 1.0,
+
+    // Debug flags
+    show_debug_overlay: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, window_width: i32, window_height: i32, window_title: [:0]const u8, options_opt: ?args_module.EngineOptions) !Engine {
         rl.initWindow(window_width, window_height, window_title);
@@ -73,10 +77,46 @@ pub const Engine = struct {
         // Accumulate time for fixed-step updates
         self.time_accumulator += self.delta_time;
 
+        // CRITICAL: Prevent spiral of death by clamping max accumulated time
+        const max_accumulated_time = self.fixed_time_step * 5.0; // Max 5 steps per frame
+        if (self.time_accumulator > max_accumulated_time) {
+            std.debug.print("⚠️ WARNING: Time accumulator exceeded maximum ({d:.4} > {d:.4}), clamping to prevent spiral of death\n", .{ self.time_accumulator, max_accumulated_time });
+            self.time_accumulator = max_accumulated_time;
+        }
+
+        // For diagnosing frame spikes
+        var steps_taken: usize = 0;
+        const start_time = std.time.nanoTimestamp();
+
         // Perform as many fixed steps as needed
         while (self.time_accumulator >= self.fixed_time_step) {
+            const step_start = std.time.nanoTimestamp();
+
             self.physics_world.update(self.fixed_time_step);
             self.time_accumulator -= self.fixed_time_step;
+
+            steps_taken += 1;
+
+            const step_end = std.time.nanoTimestamp();
+            const step_time_ms = @as(f64, @floatFromInt(step_end - step_start)) / 1_000_000.0;
+
+            // Log if a single physics step takes too long
+            if (step_time_ms > 15.0) { // 15ms is a significant part of a 16.67ms frame
+                std.debug.print("🕒 SLOW PHYSICS STEP: {d:.2}ms\n", .{step_time_ms});
+            }
+
+            // Break if we're exceeding our frame budget
+            if (steps_taken >= 5) {
+                std.debug.print("⚠️ MAX PHYSICS STEPS ({d}) REACHED IN ONE FRAME!\n", .{steps_taken});
+                break;
+            }
+        }
+
+        const total_time = @as(f64, @floatFromInt(std.time.nanoTimestamp() - start_time)) / 1_000_000.0;
+
+        // Log if physics updates take too much time in total
+        if (total_time > 15.0) {
+            std.debug.print("🕒 PHYSICS TOOK {d:.2}ms ({d} STEPS)\n", .{ total_time, steps_taken });
         }
 
         // If needed, you could also do an interpolation step here
@@ -88,6 +128,15 @@ pub const Engine = struct {
         self.input_manager.update() catch |err| {
             std.debug.print("Error processing input: {}\n", .{err});
         };
+
+        // Process debug keys (automatically handle P key, etc.)
+        debug_module.DebugUtils.processDebugKeys(self);
+
+        // Toggle debug overlay with O key
+        if (rl.isKeyPressed(rl.KeyboardKey.o)) {
+            self.show_debug_overlay = !self.show_debug_overlay;
+            std.debug.print("Debug overlay: {}\n", .{self.show_debug_overlay});
+        }
     }
 
     pub fn render(self: *Engine) void {
@@ -101,7 +150,12 @@ pub const Engine = struct {
 
         self.physics_renderer.drawWorld(self.physics_world);
 
-        renderer.PhysicsRenderer.drawDebugInfo(self.physics_world, self.paused, 20, 20, rl.Color.dark_gray);
+        // Draw debug overlay if enabled
+        if (self.show_debug_overlay) {
+            debug_module.DebugUtils.drawDebugInfo(self, 20, 20, rl.Color.dark_gray);
+        } else {
+            renderer.PhysicsRenderer.drawDebugInfo(self.physics_world, self.paused, 20, 20, rl.Color.dark_gray);
+        }
     }
 
     pub fn run(self: *Engine, user_context: *anyopaque, handle_input_fn: *const fn (ctx: *anyopaque, engine: *Engine) anyerror!void, update_fn: *const fn (ctx: *anyopaque, engine: *Engine, delta_time: f32) anyerror!void) !void {
@@ -185,8 +239,7 @@ pub const Engine = struct {
     }
 
     fn onToggleDebugMode(context: *anyopaque) void {
-        const self = input_module.getCallbackContext(Engine, context);
-        self.toggleDebugMode();
+        _ = context; // Unused now
     }
 
     // Register callback functions for input actions
