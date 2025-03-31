@@ -3,6 +3,7 @@ const RigidBody = @import("../body/body.zig").RigidBody;
 const Collision = @import("detector.zig").Collision;
 const std = @import("std");
 const detector = @import("detector.zig");
+const CollisionPhysics = @import("physics_equations.zig").CollisionPhysics;
 
 /// Collision resolution system
 pub const CollisionResolver = struct {
@@ -64,8 +65,7 @@ pub const CollisionResolver = struct {
             std.debug.print("GROUND collision - using stronger position correction: {d}\n", .{correction_factor});
         }
 
-        const correction_depth = collision.depth * correction_factor;
-        const correction = collision.normal.scale(correction_depth);
+        const correction = CollisionPhysics.calculatePositionCorrection(collision.normal, collision.depth, correction_factor);
         std.debug.print("Correction vector: ({d:.4},{d:.4})\n", .{ correction.x, correction.y });
 
         // Apply the correction based on mass properties
@@ -83,8 +83,8 @@ pub const CollisionResolver = struct {
 
             if (total_inv_mass <= 0.0001) return;
 
-            const a_ratio = a.inverse_mass / total_inv_mass;
-            const b_ratio = b.inverse_mass / total_inv_mass;
+            const a_ratio = CollisionPhysics.calculateCorrectionRatio(a.inverse_mass, b.inverse_mass);
+            const b_ratio = CollisionPhysics.calculateCorrectionRatio(b.inverse_mass, a.inverse_mass);
 
             std.debug.print("Dynamic-Dynamic: A ratio: {d:.4}, B ratio: {d:.4}\n", .{ a_ratio, b_ratio });
 
@@ -197,6 +197,9 @@ pub const CollisionResolver = struct {
             }
         }
 
+        // Adjust restitution using physics equations
+        restitution = CollisionPhysics.adjustRestitution(collision.normal, normal_velocity, restitution);
+
         // Reduce bounciness for low-speed collisions (linear damping)
         const velocity_threshold_for_damping = 10.0;
         if (@abs(normal_velocity) < velocity_threshold_for_damping) {
@@ -204,7 +207,7 @@ pub const CollisionResolver = struct {
         }
 
         // Calculate impulse magnitude
-        var j = -(1.0 + restitution) * normal_velocity / inv_mass_sum;
+        var j = CollisionPhysics.calculateImpulseMagnitude(normal_velocity, restitution, inv_mass_sum);
 
         // Cap impulse to avoid numerical explosions - REDUCED MAX IMPULSE FOR STABILITY
         const max_impulse = 500.0; // Significantly reduced from 1000.0
@@ -216,7 +219,7 @@ pub const CollisionResolver = struct {
         std.debug.print("Impulse magnitude: {d:.4}\n", .{j});
 
         // Apply the impulse along the normal only
-        const impulse = collision.normal.scale(j);
+        const impulse = CollisionPhysics.calculateImpulseVector(collision.normal, j);
         std.debug.print("Impulse vector: ({d:.4},{d:.4})\n", .{ impulse.x, impulse.y });
 
         // Log before applying impulse
