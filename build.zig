@@ -195,7 +195,13 @@ pub fn build(b: *std.Build) void {
     // Define the examples to build
     const examples = [_]struct { name: []const u8, path: []const u8 }{
         .{ .name = "basic", .path = "examples/basic/main.zig" },
-        .{ .name = "collision", .path = "examples/collision/main.zig" },
+        .{ .name = "circlevsrect", .path = "examples/circlevsrect/main.zig" },
+        .{ .name = "circlevscircle", .path = "examples/circlevscircle/main.zig" },
+        .{ .name = "rectvsrect", .path = "examples/rectvsrect/main.zig" },
+        .{ .name = "rect_horizontal", .path = "examples/rect_horizontal/main.zig" },
+        .{ .name = "rect_vertical", .path = "examples/rect_vertical/main.zig" },
+        .{ .name = "circle_horizontal", .path = "examples/circle_horizontal/main.zig" },
+        .{ .name = "circle_vertical", .path = "examples/circle_vertical/main.zig" },
     };
 
     for (examples) |example| {
