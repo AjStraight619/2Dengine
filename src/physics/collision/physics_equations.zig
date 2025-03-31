@@ -43,10 +43,14 @@ pub const CollisionPhysics = struct {
         return normal.scale(magnitude);
     }
 
-    /// Calculate friction impulse magnitude
-    /// j_f = -tangent_velocity * μ
-    pub fn calculateFrictionImpulseMagnitude(tangent_velocity: f32, friction_coefficient: f32) f32 {
-        return -tangent_velocity * friction_coefficient;
+    /// Calculate velocity change from impulse (v' = v + j/m)
+    pub fn calculateVelocityChange(impulse: Vector2, inverse_mass: f32) Vector2 {
+        return impulse.scale(inverse_mass);
+    }
+
+    /// Calculate angular velocity change from impulse and lever arm
+    pub fn calculateAngularVelocityChange(impulse: Vector2, r: Vector2, inverse_inertia: f32) f32 {
+        return r.cross(impulse) * inverse_inertia;
     }
 
     /// Calculate restitution for different collision scenarios

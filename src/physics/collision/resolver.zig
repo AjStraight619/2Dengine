@@ -398,20 +398,22 @@ pub const CollisionResolver = struct {
     fn applyImpulse(a: *RigidBody, b: *RigidBody, impulse: Vector2, ra: Vector2, rb: Vector2) void {
         // Apply linear impulse
         if (a.body_type != .static) {
-            a.velocity = a.velocity.sub(impulse.scale(a.inverse_mass));
+            const vel_change = CollisionPhysics.calculateVelocityChange(impulse, -a.inverse_mass);
+            a.velocity = a.velocity.add(vel_change);
         }
 
         if (b.body_type != .static) {
-            b.velocity = b.velocity.add(impulse.scale(b.inverse_mass));
+            const vel_change = CollisionPhysics.calculateVelocityChange(impulse, b.inverse_mass);
+            b.velocity = b.velocity.add(vel_change);
         }
 
         // Apply angular impulse
         if (a.body_type != .static) {
-            a.angular_velocity -= ra.cross(impulse) * a.inverse_inertia;
+            a.angular_velocity += CollisionPhysics.calculateAngularVelocityChange(impulse.scale(-1), ra, a.inverse_inertia);
         }
 
         if (b.body_type != .static) {
-            b.angular_velocity += rb.cross(impulse) * b.inverse_inertia;
+            b.angular_velocity += CollisionPhysics.calculateAngularVelocityChange(impulse, rb, b.inverse_inertia);
         }
     }
 };
