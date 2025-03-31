@@ -269,12 +269,12 @@ pub const CollisionResolver = struct {
         const is_ground_collision = is_vertical and collision.normal.y < 0;
 
         // Calculate tangent vector (perpendicular to normal)
-        var tangent = relative_velocity.sub(collision.normal.scale(normal_velocity));
+        var tangent = CollisionPhysics.calculateFrictionTangent(relative_velocity, collision.normal, normal_velocity);
         const tangent_length = tangent.length();
 
         // Only normalize if tangent has meaningful length
         if (tangent_length > 0.0001) {
-            tangent = tangent.scale(1.0 / tangent_length);
+            tangent = CollisionPhysics.normalizeTangentVector(tangent);
         } else {
             // For objects resting (almost zero tangent vel), assume horizontal friction direction
             if (is_ground_collision) {
@@ -293,7 +293,7 @@ pub const CollisionResolver = struct {
 
         // Calculate friction impulse factor
         // Coulomb's Law of Friction (max_friction = mu * normal_force)
-        var friction_coef = (a.friction * b.friction);
+        var friction_coef = CollisionPhysics.calculateFrictionCoefficient(a.friction, b.friction);
 
         // Special case: Increase friction for ground contacts to properly handle rolling
         if (is_ground_collision) {
@@ -321,10 +321,7 @@ pub const CollisionResolver = struct {
         }
 
         // Clamp friction impulse magnitude
-        const max_friction = @abs(normal_impulse * friction_coef);
-        if (@abs(j_t) > max_friction) {
-            j_t = if (j_t > 0.0) max_friction else -max_friction;
-        }
+        j_t = CollisionPhysics.clampFrictionImpulse(j_t, normal_impulse, friction_coef);
 
         // Calculate friction impulse vector
         const friction_impulse = tangent.scale(j_t);
