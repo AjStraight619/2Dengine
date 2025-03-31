@@ -114,25 +114,12 @@ pub const PhysicsWorld = struct {
         self.contact_points.clearRetainingCapacity();
         self.collision_count = 0;
 
-        // Limit the timestep to prevent tunneling at very low framerates
-        // This helps with stability when framerate drops
-        const max_dt = 1.0 / 30.0; // Cap at 30Hz minimum
-        const current_dt = @min(dt, max_dt);
+        // 1. Update body positions using integration
+        self.integrateForces(dt);
 
-        // Use small substeps to improve collision detection for fast-moving objects
-        // More substeps = more accurate but more CPU intensive
-        const substeps: usize = 8; // Reduced from 32 for better performance
-        const substep_dt = current_dt / @as(f32, @floatFromInt(substeps));
-
-        // Run physics simulation with substeps
-        for (0..substeps) |_| {
-            // 1. Update body positions using integration (with fractional dt)
-            self.integrateForces(substep_dt);
-
-            // 2. Detect and resolve collisions with multiple iterations for stability
-            for (0..self.position_iterations) |_| {
-                self.detectAndResolveCollisions() catch {};
-            }
+        // 2. Detect and resolve collisions with multiple iterations for stability
+        for (0..self.position_iterations) |_| {
+            self.detectAndResolveCollisions() catch {};
         }
 
         // 3. Update rigid body AABBs

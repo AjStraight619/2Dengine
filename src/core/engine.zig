@@ -19,6 +19,11 @@ pub const Engine = struct {
     window_title: [:0]const u8,
     target_fps: i32,
 
+    // Time management
+    fixed_time_step: f32 = 1.0 / 60.0, // Default physics step at 60Hz
+    time_accumulator: f32 = 0.0,
+    time_scale: f32 = 1.0,
+
     pub fn init(allocator: std.mem.Allocator, window_width: i32, window_height: i32, window_title: [:0]const u8, options_opt: ?args_module.EngineOptions) !Engine {
         rl.initWindow(window_width, window_height, window_title);
         const input_manager = try input_module.InputManager.init(allocator);
@@ -55,12 +60,27 @@ pub const Engine = struct {
     }
 
     pub fn update(self: *Engine) void {
-        self.delta_time = rl.getFrameTime();
+        // Get delta time and apply time scale
+        self.delta_time = rl.getFrameTime() * self.time_scale;
 
         if (!self.paused) {
-            // Update physics
-            self.physics_world.update(self.delta_time);
+            // Update physics with fixed time step
+            self.updatePhysics();
         }
+    }
+
+    fn updatePhysics(self: *Engine) void {
+        // Accumulate time for fixed-step updates
+        self.time_accumulator += self.delta_time;
+
+        // Perform as many fixed steps as needed
+        while (self.time_accumulator >= self.fixed_time_step) {
+            self.physics_world.update(self.fixed_time_step);
+            self.time_accumulator -= self.fixed_time_step;
+        }
+
+        // If needed, you could also do an interpolation step here
+        // based on the remaining time in accumulator
     }
 
     pub fn processInput(self: *Engine) void {
@@ -98,12 +118,13 @@ pub const Engine = struct {
             // Call user input handler
             try handle_input_fn(user_context, self);
 
-            // Get delta time for frame-rate independent physics
-            self.delta_time = rl.getFrameTime();
+            // Get delta time and apply time scale
+            self.delta_time = rl.getFrameTime() * self.time_scale;
 
             // Update physics if not paused
             if (!self.paused) {
-                self.physics_world.update(self.delta_time);
+                // Use fixed timestep for physics
+                self.updatePhysics();
             }
 
             // Call user update function
@@ -112,6 +133,15 @@ pub const Engine = struct {
             // Render
             self.render();
         }
+    }
+
+    // Set physics time step and scale
+    pub fn setFixedTimeStep(self: *Engine, step: f32) void {
+        self.fixed_time_step = step;
+    }
+
+    pub fn setTimeScale(self: *Engine, scale: f32) void {
+        self.time_scale = scale;
     }
 
     pub fn deinit(self: *Engine) void {
