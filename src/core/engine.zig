@@ -20,6 +20,9 @@ pub const Engine = struct {
     window_title: [:0]const u8,
     target_fps: i32,
 
+    // Debug system
+    debug_system: debug_module.DebugSystem,
+
     // Time management
     fixed_time_step: f32 = 1.0 / 60.0, // Default physics step at 60Hz
     time_accumulator: f32 = 0.0,
@@ -32,6 +35,10 @@ pub const Engine = struct {
         rl.initWindow(window_width, window_height, window_title);
         const input_manager = try input_module.InputManager.init(allocator);
         const options = options_opt orelse args_module.EngineOptions{};
+
+        // Create the debug system
+        var debug_system = debug_module.DebugSystem.init();
+
         var engine = Engine{
             .physics_world = physics.PhysicsWorld.init(allocator),
             .allocator = allocator,
@@ -41,26 +48,29 @@ pub const Engine = struct {
             .window_height = window_height,
             .window_title = window_title,
             .target_fps = options.target_fps,
+            .debug_system = debug_system,
         };
 
+        // Initialize debug options
+        engine.debug_mode = options.debug_mode;
+        engine.debug_system.debug_mode = options.debug_mode;
+        engine.debug_system.draw_forces = options.draw_forces;
+        engine.debug_system.draw_velocities = options.draw_velocities;
+        engine.debug_system.draw_normals = options.draw_normals;
+        engine.debug_system.draw_aabbs = options.draw_aabbs;
+
+        // Set up renderer with debug options
         engine.physics_renderer.setDebugMode(options.debug_mode);
         engine.physics_renderer.draw_forces = options.draw_forces;
         engine.physics_renderer.draw_velocities = options.draw_velocities;
         engine.physics_renderer.draw_normals = options.draw_normals;
         engine.physics_renderer.draw_aabbs = options.draw_aabbs;
 
+        // Set up debug input bindings
+        try debug_system.setupInputBindings(input_manager);
+        try debug_system.setupCallbacks(input_manager, &engine);
+
         return engine;
-    }
-
-    fn setupDefaultInputBindings(input_manager: *input_module.InputManager) !void {
-        // Pause toggle - Space key
-        try input_manager.bindInput("toggle_pause", .{ .keyboard = rl.KeyboardKey.space });
-
-        // Toggle collision logging - L key
-        try input_manager.bindInput("toggle_collision_logging", .{ .keyboard = rl.KeyboardKey.l });
-
-        // Toggle debug mode - D key
-        try input_manager.bindInput("toggle_debug_mode", .{ .keyboard = rl.KeyboardKey.d });
     }
 
     pub fn update(self: *Engine) void {
@@ -129,14 +139,11 @@ pub const Engine = struct {
             std.debug.print("Error processing input: {}\n", .{err});
         };
 
-        // Process debug keys (automatically handle P key, etc.)
-        debug_module.DebugUtils.processDebugKeys(self);
+        // Update debug system
+        self.debug_system.update();
 
-        // Toggle debug overlay with O key
-        if (rl.isKeyPressed(rl.KeyboardKey.o)) {
-            self.show_debug_overlay = !self.show_debug_overlay;
-            std.debug.print("Debug overlay: {}\n", .{self.show_debug_overlay});
-        }
+        // Sync debug settings with engine/renderer
+        self.debug_system.syncWithEngine(self);
     }
 
     pub fn render(self: *Engine) void {
@@ -152,9 +159,14 @@ pub const Engine = struct {
 
         // Draw debug overlay if enabled
         if (self.show_debug_overlay) {
-            debug_module.DebugUtils.drawDebugInfo(self, 20, 20, rl.Color.dark_gray);
+            self.debug_system.drawDebugInfo(self, 20, 20, rl.Color.dark_gray);
         } else {
             renderer.PhysicsRenderer.drawDebugInfo(self.physics_world, self.paused, 20, 20, rl.Color.dark_gray);
+        }
+
+        // Draw body debug info when in debug mode
+        if (self.debug_mode) {
+            self.debug_system.drawAllBodiesDebugInfo(&self.physics_world, rl.Color.white);
         }
     }
 
@@ -249,5 +261,48 @@ pub const Engine = struct {
         try self.input_manager.registerAction("toggle_pause", onTogglePause, user_ptr, .pressed);
         try self.input_manager.registerAction("toggle_collision_logging", onToggleCollisionLogging, user_ptr, .pressed);
         try self.input_manager.registerAction("toggle_debug_mode", onToggleDebugMode, user_ptr, .pressed);
+    }
+
+    // Draw help text with available debug controls
+    pub fn drawDebugControls(self: *Engine, x: i32, y: i32, color: rl.Color) void {
+        _ = self;
+        debug_module.DebugSystem.drawHelpText(x, y, color);
+    }
+
+    // Run with debug mode enabled and all debug features turned on
+    pub fn runWithDebug(self: *Engine, user_context: *anyopaque, handle_input_fn: *const fn (ctx: *anyopaque, engine: *Engine) anyerror!void, update_fn: *const fn (ctx: *anyopaque, engine: *Engine, delta_time: f32) anyerror!void) !void {
+        // Enable all debug features
+        self.debug_mode = true;
+        self.show_debug_overlay = true;
+        self.physics_renderer.setDebugMode(true);
+
+        // Enable all debug visualizations
+        self.debug_system.debug_mode = true;
+        self.debug_system.draw_forces = true;
+        self.debug_system.draw_velocities = true;
+        self.debug_system.draw_normals = true;
+        self.debug_system.draw_aabbs = true;
+
+        // Turn on physics debug info
+        self.physics_world.setDebugDrawCollisions(true);
+        self.physics_world.setDebugDrawContacts(true);
+
+        // Set physics to higher detail for better debugging
+        self.setFixedTimeStep(1.0 / 120.0); // 120Hz physics for smoother debugging
+
+        std.debug.print("\n=== DEBUG MODE ENABLED ===\n", .{});
+        std.debug.print("Press:\n", .{});
+        std.debug.print("  D: Toggle debug mode\n", .{});
+        std.debug.print("  V: Toggle velocity vectors\n", .{});
+        std.debug.print("  F: Toggle force vectors\n", .{});
+        std.debug.print("  N: Toggle normal vectors\n", .{});
+        std.debug.print("  B: Toggle AABBs\n", .{});
+        std.debug.print("  O: Toggle debug overlay\n", .{});
+        std.debug.print("  P: Show performance info\n", .{});
+        std.debug.print("  I: Show detailed diagnostics\n", .{});
+        std.debug.print("  -/+: Adjust force scale\n", .{});
+
+        // Run the engine normally with debug enabled
+        return self.run(user_context, handle_input_fn, update_fn);
     }
 };
