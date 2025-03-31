@@ -105,7 +105,23 @@ pub const CollisionResolver = struct {
         }
 
         std.debug.print(">>> VELOCITY RESOLUTION <<<\n", .{});
-        std.debug.print("Before: A vel=({d:.4},{d:.4}), B vel=({d:.4},{d:.4})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
+        std.debug.print("Before: A vel=({d:.6},{d:.6}), B vel=({d:.6},{d:.6})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
+
+        // Check if this is a vertical collision between rectangles with very small velocity
+        // This is likely a "resting" scenario that causes jittering
+        const is_vertical = @abs(collision.normal.y) > 0.9;
+        const is_rect_vs_rect = a.shape == .rectangle and b.shape == .rectangle;
+        const vertical_rect_collision = is_vertical and is_rect_vs_rect;
+
+        // DEBUG: Special logging for near-rest vertical rect collisions
+        if (vertical_rect_collision) {
+            const velocity_near_zero = @abs(b.velocity.y) < 0.1;
+            if (velocity_near_zero) {
+                std.debug.print("JITTER-DEBUG: Near-rest vertical rect collision detected!\n", .{});
+                std.debug.print("JITTER-DEBUG: Velocity before resolution: {d:.8}\n", .{b.velocity.y});
+                std.debug.print("JITTER-DEBUG: Gravity applied this frame: {d:.8}\n", .{b.force.y});
+            }
+        }
 
         // Get the contact point
         const contact = collision.contact_points[0];
@@ -127,7 +143,6 @@ pub const CollisionResolver = struct {
 
         // Check if this is a horizontal collision between rectangles
         const is_horizontal = @abs(collision.normal.x) > 0.9;
-        const is_rect_vs_rect = a.shape == .rectangle and b.shape == .rectangle;
         const horizontal_rect_collision = is_horizontal and is_rect_vs_rect;
 
         if (horizontal_rect_collision) {
@@ -139,10 +154,6 @@ pub const CollisionResolver = struct {
             std.debug.print("Objects DEFINITELY separating, skipping impulse\n", .{});
             return;
         }
-
-        // Check if this is a vertical collision between rectangles
-        const is_vertical = @abs(collision.normal.y) > 0.9;
-        const vertical_rect_collision = is_vertical and is_rect_vs_rect;
 
         // Calculate impulse factors
         const ra_cross_n = ra.cross(collision.normal);
@@ -196,23 +207,36 @@ pub const CollisionResolver = struct {
         std.debug.print("Impulse vector: ({d:.4},{d:.4})\n", .{ impulse.x, impulse.y });
 
         // Log before applying impulse
-        std.debug.print("Before impulse: A vel=({d:.4},{d:.4}), B vel=({d:.4},{d:.4})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
+        std.debug.print("Before impulse: A vel=({d:.6},{d:.6}), B vel=({d:.6},{d:.6})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
 
         // Apply impulse
         applyImpulse(a, b, impulse, ra, rb);
 
         // Log after applying impulse
-        std.debug.print("After impulse: A vel=({d:.4},{d:.4}), B vel=({d:.4},{d:.4})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
+        std.debug.print("After impulse: A vel=({d:.6},{d:.6}), B vel=({d:.6},{d:.6})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
 
         // Apply friction
         applyFriction(a, b, collision, relative_velocity, normal_velocity, j, ra, rb, horizontal_rect_collision);
 
+        // DEBUG: Check for small vertical velocity changes that might cause jitter
+        if (vertical_rect_collision and b.body_type != .static) {
+            if (@abs(b.velocity.y) < 0.05) {
+                std.debug.print("JITTER-DEBUG: After resolution, very small velocity: {d:.8}\n", .{b.velocity.y});
+
+                // DEBUG: Track position and velocity over frames to analyze jitter
+                std.debug.print("JITTER-DEBUG: POSITION: {d:.8}, VELOCITY: {d:.8}\n", .{ b.position.y, b.velocity.y });
+            }
+        }
+
         // Final velocities after all impulses
-        std.debug.print("Final velocities: A=({d:.4},{d:.4}), B=({d:.4},{d:.4})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
+        std.debug.print("Final velocities: A=({d:.6},{d:.6}), B=({d:.6},{d:.6})\n", .{ a.velocity.x, a.velocity.y, b.velocity.x, b.velocity.y });
     }
 
     /// Apply friction impulse
     fn applyFriction(a: *RigidBody, b: *RigidBody, collision: Collision, relative_velocity: Vector2, normal_velocity: f32, normal_impulse: f32, ra: Vector2, rb: Vector2, is_horizontal_rect_collision: bool) void {
+        // Check for vertical collision condition (for resting objects)
+        const is_vertical = @abs(collision.normal.y) > 0.9;
+        const vertical_rect_collision = is_vertical and (a.shape == .rectangle and b.shape == .rectangle);
 
         // Calculate tangent vector (perpendicular to normal)
         var tangent = relative_velocity.sub(collision.normal.scale(normal_velocity));
@@ -224,6 +248,16 @@ pub const CollisionResolver = struct {
         // Horizontal rectangle collisions need smaller threshold for better responsiveness
         if (is_horizontal_rect_collision) {
             tangent_threshold = 0.01; // 10x more sensitive for horizontal collisions
+        }
+
+        // For vertical resting objects (floors), use a higher threshold to dampen jitter
+        if (vertical_rect_collision and @abs(normal_velocity) < 0.1) {
+            tangent_threshold = 0.2; // Higher threshold to prevent tiny friction movements when at rest
+
+            // Log for debugging jitter
+            if (@abs(tangent_length) < 0.5 and @abs(normal_velocity) < 0.01) {
+                std.debug.print("JITTER-DEBUG: Minimal friction for resting object, tangent_length={d:.8}\n", .{tangent_length});
+            }
         }
 
         if (tangent_length < tangent_threshold) {
@@ -245,10 +279,15 @@ pub const CollisionResolver = struct {
         }
 
         // Special case for vertical collisions (floor/ceiling)
-        if (@abs(collision.normal.y) > 0.9 and a.shape == .rectangle and b.shape == .rectangle) {
+        if (vertical_rect_collision) {
             // Higher friction for resting on surfaces
             friction *= 1.5; // Increased to improve stability on platforms
             std.debug.print("Vertical rect-rect collision: increasing friction to {d:.4}\n", .{friction});
+
+            // Log additional diagnostics for near-rest collisions
+            if (@abs(normal_velocity) < 0.05) {
+                std.debug.print("JITTER-DEBUG: Resting friction calculation with normal_velocity={d:.8}\n", .{normal_velocity});
+            }
         }
 
         // Calculate and apply friction impulse with adjusted magnitude
