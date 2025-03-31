@@ -295,7 +295,7 @@ fn aabbVsAabb(pos_a: Vector2, width_a: f32, height_a: f32, pos_b: Vector2, width
 
     // Add a bias for vertical collisions to reduce sliding
     // This helps with objects resting on top of each other
-    const vertical_bias = 1.2; // 20% bias for vertical collisions (increased from 10%)
+    const vertical_bias = 1.3; // Increased to 30% bias for vertical collisions to help with stacking
 
     // Apply vertical bias only when the difference is within a threshold and one object is above the other
     // Improved vertical stack detection - check if objects are roughly aligned horizontally
@@ -303,11 +303,37 @@ fn aabbVsAabb(pos_a: Vector2, width_a: f32, height_a: f32, pos_b: Vector2, width
     const is_vertical_stack = @abs(delta.x) < (half_width_a + half_width_b) * 0.95 and
         @abs(delta.y) > 0.05;
 
+    // Check for horizontal wall collision - when an object is pushing straight against a wall
+    const is_horizontal_wall = @abs(delta.y) < (half_height_a + half_height_b) * 0.8 and
+        @abs(delta.x) > 0.05;
+
+    // Skip collision if objects are extremely close to each other (depth is tiny)
+    // This helps prevent oscillation and jitter
+    const min_meaningful_depth = 0.0015; // Extremely small threshold for meaningful collision depth
+
+    // Determine if this collision should use bias for vertical stacking
     if (is_vertical_stack and y_overlap < x_overlap * vertical_bias) {
         // Use Y axis (vertical collision)
         mtv.y = if (delta.y < 0) -1.0 else 1.0;
         depth = y_overlap;
+
+        // Explicitly zero out the X component for pure vertical collision
+        mtv.x = 0.0;
+
         std.debug.print("Using vertical collision with bias\n", .{});
+    } else if (is_horizontal_wall and x_overlap < y_overlap * 1.5) { // Increased wall bias from 1.2 to 1.5
+        // X axis with increased horizontal bias to help detect wall collisions better
+        mtv.x = if (delta.x < 0) -1.0 else 1.0;
+        mtv.y = 0.0;
+        depth = x_overlap;
+
+        // For wall collisions, we don't want extremely small depths to be ignored
+        // This prevents objects from partially penetrating walls before detection
+        if (depth < min_meaningful_depth * 2.0) {
+            depth = min_meaningful_depth * 2.0;
+        }
+
+        std.debug.print("Using horizontal wall collision with higher bias\n", .{});
     } else if (x_overlap < y_overlap) {
         // X axis has less penetration
         mtv.x = if (delta.x < 0) -1.0 else 1.0;
@@ -322,6 +348,18 @@ fn aabbVsAabb(pos_a: Vector2, width_a: f32, height_a: f32, pos_b: Vector2, width
         mtv.x = 0.0;
         depth = y_overlap;
         std.debug.print("Using vertical collision\n", .{});
+    }
+
+    // Check if depth is too small to be meaningful
+    if (depth < min_meaningful_depth) {
+        std.debug.print("Depth too small ({d:.6}), skipping collision\n", .{depth});
+        return SATResult{
+            .collision = false,
+            .mtv = Vector2.zero(),
+            .depth = 0,
+            .contact_points = [2]Vector2{ Vector2.zero(), Vector2.zero() },
+            .contact_count = 0,
+        };
     }
 
     // Calculate contact points - add more detailed contact information

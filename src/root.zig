@@ -9,6 +9,8 @@ const engine = @import("mod.zig");
 pub const core = struct {
     pub const Engine = engine.Engine;
     pub const args = engine.core.args;
+    pub const debug = engine.core.debug;
+    pub const debug_helper = engine.core.debug_helper;
 };
 
 pub const math = struct {

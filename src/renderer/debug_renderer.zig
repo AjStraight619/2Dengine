@@ -7,8 +7,9 @@ const geom = @import("../physics/geometry/mod.zig");
 pub const DebugRenderer = struct {
     // Configuration
     velocity_scale: f32 = 3.0,
-    force_scale: f32 = 0.05,
+    force_scale: f32 = 0.1,
     normal_scale: f32 = 25.0,
+    min_vector_length: f32 = 0.01,
 
     // Colors
     velocity_color: rl.Color = rl.Color.blue,
@@ -55,12 +56,19 @@ pub const DebugRenderer = struct {
 
     // Draw force vector for a body
     pub fn drawForceVector(self: DebugRenderer, body: *phys.RigidBody) void {
-        if (body.force.length() > 0.1) {
+        if (body.force.length() > self.min_vector_length) {
             const pos_x = @as(i32, @intFromFloat(body.position.x));
             const pos_y = @as(i32, @intFromFloat(body.position.y));
 
-            // Calculate end point using physics Vector2
-            const force_vec = body.force.scale(self.force_scale);
+            var force_vec = body.force.scale(self.force_scale);
+
+            // Ensure force vector has a minimum visible length
+            const min_visual_length: f32 = 10.0; // Minimum pixel length for visibility
+            const force_len = force_vec.length();
+            if (force_len < min_visual_length and force_len > 0) {
+                force_vec = force_vec.scale(min_visual_length / force_len);
+            }
+
             const end_pos = body.position.add(force_vec);
 
             const end_x = @as(i32, @intFromFloat(end_pos.x));
@@ -68,9 +76,13 @@ pub const DebugRenderer = struct {
 
             rl.drawLine(pos_x, pos_y, end_x, end_y, self.force_color);
 
-            // Draw arrowhead
             const normalized_force = body.force.normalize();
             drawArrowhead(end_x, end_y, normalized_force, 10.0, self.force_color);
+
+            // Draw force magnitude text
+            var force_text_buf: [32]u8 = undefined;
+            const force_text = std.fmt.bufPrintZ(&force_text_buf, "{d:.1}", .{body.force.length()}) catch "?";
+            rl.drawText(@ptrCast(force_text), end_x + 5, end_y + 5, 15, self.force_color);
         }
     }
 

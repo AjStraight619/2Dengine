@@ -204,6 +204,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "circle_vertical", .path = "examples/circle_vertical/main.zig" },
         .{ .name = "performance_test", .path = "examples/performance_test/main.zig" },
         .{ .name = "many_circles", .path = "examples/many_circles/main.zig" },
+        .{ .name = "friction_test", .path = "examples/friction_test/main.zig" },
     };
 
     for (examples) |example| {

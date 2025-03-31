@@ -158,9 +158,55 @@ pub const CollisionResolver = struct {
         const is_horizontal = @abs(collision.normal.x) > 0.9;
         const horizontal_rect_collision = is_horizontal and is_rect_vs_rect;
 
+        // For horizontal wall collisions, we need to be more aggressive about zeroing out velocity
+        // to prevent the object from bouncing back and forth between the wall and ground
+        if (horizontal_rect_collision) {
+            // For ANY wall collision with low velocity, completely stop horizontal motion
+            // (increased threshold from 1.0 to 5.0 to catch more cases)
+            if (@abs(normal_velocity) < 5.0) {
+                std.debug.print("WALL COLLISION: Complete horizontal stop applied\n", .{});
+
+                // For RIGHT wall collision (normal pointing left), zero X velocity completely
+                if (collision.normal.x < 0 and b.body_type == .dynamic) {
+                    b.velocity.x = 0;
+                    // Force sleeping sooner to prevent further collisions
+                    b.low_velocity_frames += 8;
+                    if (b.low_velocity_frames > 10) {
+                        b.is_sleeping = true;
+                        std.debug.print("🛌 FORCED SLEEP: Object at wall is now sleeping\n", .{});
+                    }
+                }
+
+                // For LEFT wall collision (normal pointing right), zero X velocity completely
+                if (collision.normal.x > 0 and a.body_type == .dynamic) {
+                    a.velocity.x = 0;
+                    // Force sleeping sooner
+                    a.low_velocity_frames += 8;
+                    if (a.low_velocity_frames > 10) {
+                        a.is_sleeping = true;
+                        std.debug.print("🛌 FORCED SLEEP: Object at wall is now sleeping\n", .{});
+                    }
+                }
+
+                // Don't even apply any impulse for wall collisions - just stop
+                if (normal_velocity < 0) {
+                    std.debug.print("⚠️ WALL IMPACT: Skipping normal impulse resolution\n", .{});
+                    return;
+                }
+            }
+        }
+
         if (horizontal_rect_collision) {
             // Much higher tolerance for horizontal rectangle collisions
             separation_tolerance = 0.05; // 50x higher tolerance for horizontal rect collisions
+        }
+
+        // Increased resting contact detection for vertical collisions
+        if (is_vertical) {
+            // For vertical collisions, increase tolerance for resting contacts
+            if (@abs(normal_velocity) < 0.1) {
+                separation_tolerance = 0.1; // Higher tolerance for near-zero velocity
+            }
         }
 
         if (normal_velocity > separation_tolerance) {
@@ -183,9 +229,9 @@ pub const CollisionResolver = struct {
 
         // For horizontal rectangles, drastically reduce restitution to prevent bouncing
         if (horizontal_rect_collision) {
-            // Near-zero restitution for horizontal collisions
-            restitution *= 0.1;
-            std.debug.print("Horizontal rect-rect collision: reducing restitution to {d:.4}\n", .{restitution});
+            // ZERO restitution for horizontal collisions - no bounce at all
+            restitution = 0.0;
+            std.debug.print("Horizontal rect-rect collision: ZERO restitution applied\n", .{});
         }
 
         // Reduce restitution for vertical collisions as well
@@ -246,13 +292,108 @@ pub const CollisionResolver = struct {
         // Apply friction
         applyFriction(a, b, collision, relative_velocity, normal_velocity, j, ra, rb, horizontal_rect_collision);
 
-        // DEBUG: Check for small vertical velocity changes that might cause jitter
-        if (vertical_rect_collision and b.body_type != .static) {
-            if (@abs(b.velocity.y) < 0.05) {
-                std.debug.print("JITTER-DEBUG: After resolution, very small velocity: {d:.8}\n", .{b.velocity.y});
+        // Enhanced sleep detection system for interacting objects
+        if (a.body_type == .dynamic and b.body_type == .dynamic) {
+            // For objects in contact with each other:
+            // 1. They should have similar sleep states to avoid one being awake while pushing a sleeping one
+            // 2. They should have similar velocity thresholds to sleep together
 
-                // DEBUG: Track position and velocity over frames to analyze jitter
-                std.debug.print("JITTER-DEBUG: POSITION: {d:.8}, VELOCITY: {d:.8}\n", .{ b.position.y, b.velocity.y });
+            const sleep_velocity_threshold: f32 = 0.05;
+            const a_low_vel = a.velocity.lengthSquared() < sleep_velocity_threshold * sleep_velocity_threshold;
+            const b_low_vel = b.velocity.lengthSquared() < sleep_velocity_threshold * sleep_velocity_threshold;
+
+            // Both objects have low velocity - increase their sleep counters
+            if (a_low_vel and b_low_vel) {
+                // Increment both counters
+                a.low_velocity_frames += 1;
+                b.low_velocity_frames += 1;
+
+                // If either object has enough frames to sleep, make BOTH sleep
+                if (a.low_velocity_frames > 8 or b.low_velocity_frames > 8) { // Lower threshold for contacting objects
+                    a.is_sleeping = true;
+                    b.is_sleeping = true;
+                    a.velocity = Vector2.zero();
+                    b.velocity = Vector2.zero();
+                    std.debug.print("CONTACT SLEEP: Both objects put to sleep\n", .{});
+                }
+            } else {
+                // If either has significant velocity, wake up both
+                if (!a_low_vel or !b_low_vel) {
+                    a.low_velocity_frames = 0;
+                    b.low_velocity_frames = 0;
+                    a.is_sleeping = false;
+                    b.is_sleeping = false;
+                }
+            }
+        } else {
+            // Special case for wall collisions - put objects to sleep faster
+            const is_wall_collision = @abs(collision.normal.x) > 0.95;
+
+            // Original sleep logic for single dynamic body against static
+            if (a.body_type == .dynamic) {
+                const sleep_velocity_threshold: f32 = 0.05;
+                if (a.velocity.lengthSquared() < sleep_velocity_threshold * sleep_velocity_threshold) {
+                    // Wall collisions make objects sleep faster
+                    if (is_wall_collision) {
+                        a.low_velocity_frames += 2; // Double increment for wall contacts
+                        std.debug.print("Using horizontal wall collision with higher bias\n", .{});
+                        std.debug.print("MTV: ({d:.4}, {d:.4}), Depth: {d:.4}\n", .{ collision.normal.x, collision.normal.y, collision.depth });
+
+                        // Even faster sleep for objects right against a wall
+                        if (a.velocity.lengthSquared() < 0.01 * 0.01) {
+                            a.low_velocity_frames += 2;
+                            // Immediately zero horizontal velocity for wall contact
+                            if (@abs(collision.normal.x) > 0.9) {
+                                a.velocity.x = 0;
+                            }
+                        }
+                    } else {
+                        a.low_velocity_frames += 1;
+                    }
+
+                    if (a.low_velocity_frames > 6 and is_wall_collision) {
+                        a.is_sleeping = true;
+                        a.velocity = Vector2.zero();
+                        std.debug.print("WALL RESTING: Object put to sleep\n", .{});
+                    } else if (a.low_velocity_frames > 10) {
+                        a.is_sleeping = true;
+                        a.velocity = Vector2.zero();
+                    }
+                } else {
+                    a.low_velocity_frames = 0;
+                }
+            }
+
+            if (b.body_type == .dynamic) {
+                const sleep_velocity_threshold: f32 = 0.05;
+                if (b.velocity.lengthSquared() < sleep_velocity_threshold * sleep_velocity_threshold) {
+                    // Wall collisions make objects sleep faster
+                    if (is_wall_collision) {
+                        b.low_velocity_frames += 2; // Double increment for wall contacts
+
+                        // Even faster sleep for objects right against a wall
+                        if (b.velocity.lengthSquared() < 0.01 * 0.01) {
+                            b.low_velocity_frames += 2;
+                            // Immediately zero horizontal velocity for wall contact
+                            if (@abs(collision.normal.x) > 0.9) {
+                                b.velocity.x = 0;
+                            }
+                        }
+                    } else {
+                        b.low_velocity_frames += 1;
+                    }
+
+                    if (b.low_velocity_frames > 6 and is_wall_collision) {
+                        b.is_sleeping = true;
+                        b.velocity = Vector2.zero();
+                        std.debug.print("WALL RESTING: Object put to sleep\n", .{});
+                    } else if (b.low_velocity_frames > 10) {
+                        b.is_sleeping = true;
+                        b.velocity = Vector2.zero();
+                    }
+                } else {
+                    b.low_velocity_frames = 0;
+                }
             }
         }
 
@@ -315,9 +456,37 @@ pub const CollisionResolver = struct {
             ((@abs(a.velocity.x) > 0.01 and a.body_type == .dynamic) or
                 (@abs(b.velocity.x) > 0.01 and b.body_type == .dynamic)))
         {
-            // Ensure we apply at least some friction for rolling objects
-            j_t = if (relative_velocity.x > 0) -0.01 else 0.01;
-            std.debug.print("MINIMUM FRICTION: Ensuring rolling objects slow down\n", .{});
+            // For extremely slow-moving objects, just stop them completely
+            if (a.body_type == .dynamic and @abs(a.velocity.x) < 0.1) {
+                a.velocity.x = 0;
+                a.low_velocity_frames += 1;
+                std.debug.print("RESTING CONTACT: Zeroing extremely slow A velocity\n", .{});
+                j_t = 0; // No impulse needed
+            } else if (b.body_type == .dynamic and @abs(b.velocity.x) < 0.1) {
+                b.velocity.x = 0;
+                b.low_velocity_frames += 1;
+                std.debug.print("RESTING CONTACT: Zeroing extremely slow B velocity\n", .{});
+                j_t = 0; // No impulse needed
+            } else {
+                // FIX: Calculate the exact impulse needed to stop the object
+                if (a.body_type == .dynamic and @abs(a.velocity.x) > 0.001) {
+                    // Calculate the impulse needed to stop the object exactly (not overshoot)
+                    const impulse_to_stop_a = -a.velocity.x * a.mass;
+                    j_t = std.math.clamp(j_t, -@abs(impulse_to_stop_a), @abs(impulse_to_stop_a));
+                    std.debug.print("EXACT FRICTION: Applying just enough to stop object A: {d:.6}\n", .{j_t});
+                } else if (b.body_type == .dynamic and @abs(b.velocity.x) > 0.001) {
+                    // Calculate the impulse needed to stop the object exactly (not overshoot)
+                    const impulse_to_stop_b = -b.velocity.x * b.mass;
+                    j_t = std.math.clamp(j_t, -@abs(impulse_to_stop_b), @abs(impulse_to_stop_b));
+                    std.debug.print("EXACT FRICTION: Applying just enough to stop object B: {d:.6}\n", .{j_t});
+                } else {
+                    // Extremely small velocity - just zero it out completely
+                    if (a.body_type == .dynamic) a.velocity.x = 0;
+                    if (b.body_type == .dynamic) b.velocity.x = 0;
+                    j_t = 0; // No friction impulse needed
+                    std.debug.print("ZEROING VELOCITY: Objects essentially at rest\n", .{});
+                }
+            }
         }
 
         // Clamp friction impulse magnitude
@@ -368,7 +537,6 @@ pub const CollisionResolver = struct {
                 std.debug.print("🚨 UNSTABLE FRICTION DETECTED: Vertical velocity direction changed!\n", .{});
                 std.debug.print("  A: y-vel {d:.6} → {d:.6}\n", .{ a_vel_before.y, a.velocity.y });
                 std.debug.print("  B: y-vel {d:.6} → {d:.6}\n", .{ b_vel_before.y, b.velocity.y });
-                detector.unstable_friction_count += 1;
             }
         }
     }

@@ -13,6 +13,9 @@ pub var unstable_friction_count: usize = 0;
 pub var significant_collision_count: usize = 0; // New counter for impacts only
 pub var resting_contact_count: usize = 0; // Counter for inactive/resting contacts
 
+/// Reference to the physics world for debug access
+pub var physics_world_ref: ?*anyopaque = null;
+
 /// A map to track recently processed collision pairs to avoid duplicates
 var last_collision_pairs = std.AutoHashMap(u64, f32).init(std.heap.page_allocator);
 
@@ -81,7 +84,7 @@ pub const CollisionDetector = struct {
                     b.velocity;
 
                 // Skip if relative velocity is very small (objects at rest)
-                if (rel_vel.lengthSquared() < 0.01) {
+                if (rel_vel.lengthSquared() < 0.1) {
                     resting_contact_count += 1;
                     return null;
                 }
@@ -97,23 +100,71 @@ pub const CollisionDetector = struct {
         }
 
         // Skip collisions with extremely tiny penetration - likely numerical jitter
-        const min_penetration_depth: f32 = 0.001; // 1mm minimum penetration to count
+        const min_penetration_depth: f32 = 0.002;
         if (sat_result.depth < min_penetration_depth) {
             return null;
         }
 
-        // Wake up sleeping bodies
-        if (a.is_sleeping and a.body_type == .dynamic) {
-            a.wakeUp();
-        }
+        // Check if both bodies have nearly zero velocity - possible resting contact
+        const is_a_nearly_stationary = a.body_type != .dynamic or a.velocity.lengthSquared() < 0.01;
+        const is_b_nearly_stationary = b.body_type != .dynamic or b.velocity.lengthSquared() < 0.01;
 
-        if (b.is_sleeping and b.body_type == .dynamic) {
-            b.wakeUp();
-        }
+        // For horizontal wall collisions, use a higher velocity threshold since we want to
+        // detect when objects have come to rest against a wall
+        const is_horizontal_collision = @abs(sat_result.mtv.x) > 0.9;
+        if (is_horizontal_collision) {
+            // For horizontal collisions, specifically check horizontal velocity
+            if (is_a_nearly_stationary and is_b_nearly_stationary) {
+                // If the relative horizontal velocity is very small, consider them at rest
+                const rel_horiz_vel = if (a.body_type == .dynamic and b.body_type == .dynamic)
+                    @abs(b.velocity.x - a.velocity.x)
+                else if (a.body_type == .dynamic)
+                    @abs(a.velocity.x)
+                else
+                    @abs(b.velocity.x);
 
-        // Record this collision pair to avoid redundant processing
-        const current_time: f32 = @floatFromInt(total_collision_count % 1000);
-        last_collision_pairs.put(pair_hash, current_time) catch {};
+                // If horizontal velocity is very small, increment resting counters
+                if (rel_horiz_vel < 0.1) { // Increased sensitivity for wall detection
+                    // If this is a very small penetration, just skip it
+                    if (sat_result.depth < 0.1) { // Higher threshold for horizontal collisions
+                        resting_contact_count += 1;
+
+                        // Put bodies to sleep if they've been nearly stationary for multiple frames
+                        if (a.body_type == .dynamic) {
+                            a.low_velocity_frames += 2; // Increment faster for wall contacts
+                            if (a.low_velocity_frames > 5) {
+                                a.is_sleeping = true;
+                                a.velocity.x = 0;
+                                std.debug.print("WALL RESTING: Object put to sleep\n", .{});
+                            }
+                        }
+
+                        if (b.body_type == .dynamic) {
+                            b.low_velocity_frames += 2; // Increment faster for wall contacts
+                            if (b.low_velocity_frames > 5) {
+                                b.is_sleeping = true;
+                                b.velocity.x = 0;
+                                std.debug.print("WALL RESTING: Object put to sleep\n", .{});
+                            }
+                        }
+
+                        return null;
+                    }
+                }
+            }
+
+            // Special case: any sleeping object near a wall with tiny velocity should stay sleeping
+            const a_is_sleeping_dynamic = a.is_sleeping and a.inverse_mass > 0;
+            const b_is_sleeping_dynamic = b.is_sleeping and b.inverse_mass > 0;
+
+            if (a_is_sleeping_dynamic or b_is_sleeping_dynamic) {
+                // If penetration is small enough, don't wake them up
+                if (sat_result.depth < 0.2) {
+                    std.debug.print("SLEEPING AT WALL: Keeping objects asleep despite small overlap\n", .{});
+                    return null;
+                }
+            }
+        }
 
         // Increment global collision counter for statistics
         total_collision_count += 1;
@@ -128,6 +179,35 @@ pub const CollisionDetector = struct {
 
         // Project relative velocity onto collision normal
         const normal_velocity = relative_velocity.dot(sat_result.mtv);
+
+        // Wake up sleeping bodies only if they're experiencing a significant collision
+        if (a.is_sleeping and a.body_type == .dynamic) {
+            // Wake up with velocity if the impact is significant
+            if (normal_velocity < -1.0) {
+                // Stronger collisions give the body some velocity
+                a.wakeUpWithMinVelocity(0.5);
+                std.debug.print("WAKING BODY WITH VELOCITY - impact strength: {d:.2}\n", .{-normal_velocity});
+            } else {
+                // Minor collisions just wake it up
+                a.wakeUp();
+            }
+        }
+
+        if (b.is_sleeping and b.body_type == .dynamic) {
+            // Wake up with velocity if the impact is significant
+            if (normal_velocity < -1.0) {
+                // Stronger collisions give the body some velocity
+                b.wakeUpWithMinVelocity(0.5);
+                std.debug.print("WAKING BODY WITH VELOCITY - impact strength: {d:.2}\n", .{-normal_velocity});
+            } else {
+                // Minor collisions just wake it up
+                b.wakeUp();
+            }
+        }
+
+        // Record this collision pair to avoid redundant processing
+        const current_time: f32 = @floatFromInt(total_collision_count % 1000);
+        last_collision_pairs.put(pair_hash, current_time) catch {};
 
         // Only count as significant collision if objects are moving toward each other
         // with some minimum velocity (actual impacts, not resting contact)

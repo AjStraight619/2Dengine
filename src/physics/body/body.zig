@@ -47,6 +47,7 @@ pub const RigidBody = struct {
     // Sleeping mechanism
     is_sleeping: bool = false,
     sleep_time: f32 = 0.0,
+    low_velocity_frames: u32 = 0, // Track consecutive frames with low velocity
 
     pub fn init(body_type: BodyType, position: Vector2, shape: Shape, mass: f32) RigidBody {
         var body = RigidBody{
@@ -267,5 +268,42 @@ pub const RigidBody = struct {
     pub fn wakeUp(self: *RigidBody) void {
         self.is_sleeping = false;
         self.sleep_time = 0.0;
+        self.low_velocity_frames = 0; // Reset the frame counter too
+    }
+
+    /// Wake up a body with a minimum velocity to ensure it actually moves
+    pub fn wakeUpWithMinVelocity(self: *RigidBody, min_velocity: f32) void {
+        self.wakeUp();
+
+        // Ensure a minimum velocity for the awakened body
+        const vel_len_sq = self.velocity.lengthSquared();
+        if (vel_len_sq < min_velocity * min_velocity) {
+            if (vel_len_sq > 0.001) {
+                // Body has some velocity - scale it up to minimum
+                const current_len = @sqrt(vel_len_sq);
+                self.velocity = self.velocity.scale(min_velocity / current_len);
+            } else {
+                // Body has no significant velocity - give it a small push downward
+                self.velocity = Vector2.init(0, min_velocity);
+            }
+        }
+    }
+
+    /// Wake a connected group of bodies (for chain reactions)
+    pub fn wakeConnected(self: *RigidBody, bodies: []RigidBody, min_distance: f32) void {
+        self.wakeUp();
+
+        if (bodies.len == 0) return;
+
+        // Wake up any bodies in close proximity
+        for (bodies) |*other| {
+            if (other.body_type != .dynamic or other == self) continue;
+
+            // If bodies are close enough, wake the other one too
+            const dist_sq = self.position.distanceToSquared(other.position);
+            if (dist_sq < min_distance * min_distance) {
+                other.wakeUp();
+            }
+        }
     }
 };
