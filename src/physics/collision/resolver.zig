@@ -143,7 +143,7 @@ pub const CollisionResolver = struct {
         // Calculate relative velocity at contact point
         const ra = contact.sub(a.position);
         const rb = contact.sub(b.position);
-        const relative_velocity = calculateRelativeVelocity(a, ra, b, rb);
+        const relative_velocity = CollisionPhysics.calculateRelativeVelocity(a.velocity, b.velocity, a.angular_velocity, b.angular_velocity, ra, rb);
         std.debug.print("Relative velocity: ({d:.4},{d:.4})\n", .{ relative_velocity.x, relative_velocity.y });
 
         // Project relative velocity onto the collision normal
@@ -371,27 +371,6 @@ pub const CollisionResolver = struct {
                 detector.unstable_friction_count += 1;
             }
         }
-    }
-
-    /// Calculate relative velocity at a contact point
-    fn calculateRelativeVelocity(a: *RigidBody, ra: Vector2, b: *RigidBody, rb: Vector2) Vector2 {
-        // Calculate velocity at contact point
-        var vel_a = a.velocity;
-        var vel_b = b.velocity;
-
-        // Add angular velocity contribution
-        if (a.body_type != .static) {
-            const perp_a = Vector2.init(-ra.y, ra.x);
-            vel_a = vel_a.add(perp_a.scale(a.angular_velocity));
-        }
-
-        if (b.body_type != .static) {
-            const perp_b = Vector2.init(-rb.y, rb.x);
-            vel_b = vel_b.add(perp_b.scale(b.angular_velocity));
-        }
-
-        // Return relative velocity
-        return vel_b.sub(vel_a);
     }
 
     /// Apply an impulse to both bodies

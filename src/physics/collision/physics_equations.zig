@@ -108,4 +108,22 @@ pub const CollisionPhysics = struct {
         }
         return j_t;
     }
+
+    /// Calculate relative velocity at a contact point
+    /// vrel = vb + ωb×rb - va - ωa×ra
+    pub fn calculateRelativeVelocity(vel_a: Vector2, vel_b: Vector2, angular_vel_a: f32, angular_vel_b: f32, ra: Vector2, rb: Vector2) Vector2 {
+        // Calculate velocity at point considering both linear and angular components
+        var point_vel_a = vel_a;
+        var point_vel_b = vel_b;
+
+        // Add angular velocity contribution
+        const perp_a = Vector2.init(-ra.y, ra.x);
+        point_vel_a = point_vel_a.add(perp_a.scale(angular_vel_a));
+
+        const perp_b = Vector2.init(-rb.y, rb.x);
+        point_vel_b = point_vel_b.add(perp_b.scale(angular_vel_b));
+
+        // Return relative velocity
+        return point_vel_b.sub(point_vel_a);
+    }
 };
