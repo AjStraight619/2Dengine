@@ -2,6 +2,8 @@ const std = @import("std");
 const rl = @import("raylib");
 const ze = @import("zigengine_lib");
 
+const math = std.math;
+
 // Example: Vertical Rectangle Collision
 // This example demonstrates vertical collision detection and resolution between rectangles
 
@@ -37,7 +39,7 @@ pub fn main() !void {
         .width = 800,
         .height = 20,
         .restitution = 0.3,
-        .friction = 0.2,
+        .friction = 0.5,
     });
 
     // Left wall
@@ -64,6 +66,7 @@ pub fn main() !void {
     _ = try game_engine.physics_world.addRectangle(.{
         .type = .static,
         .position = ze.math.Vector2.init(250, 400),
+        .angle_degrees = 30.0,
         .width = 200,
         .height = 20,
         .restitution = 0.3,
@@ -75,40 +78,42 @@ pub fn main() !void {
         .position = ze.math.Vector2.init(550, 250),
         .width = 200,
         .height = 20,
+        .angle_degrees = 30.0,
         .restitution = 0.3,
         .friction = 0.2,
     });
 
     // Create a dynamic rectangle that will fall and collide vertically
-    _ = try game_engine.physics_world.addRectangle(.{
+    _ = try game_engine.physics_world.addCircle(.{
         .type = .dynamic,
         .position = ze.math.Vector2.init(250, 100),
-        .width = 40,
-        .height = 40,
+        .radius = 20,
         .mass = 1.0,
         .restitution = 0.3,
         .friction = 0.2,
     });
 
     // Create another dynamic rectangle on a higher platform
-    _ = try game_engine.physics_world.addRectangle(.{
+    _ = try game_engine.physics_world.addCircle(.{
         .type = .dynamic,
         .position = ze.math.Vector2.init(550, 100),
-        .width = 40,
-        .height = 40,
+        .radius = 20,
         .mass = 1.0,
         .restitution = 0.3,
         .friction = 0.2,
     });
 
     // Run the engine with our custom input and update handlers
-    try game_engine.run(@ptrCast(&game_engine), handleInput, update);
+    try game_engine.runWithDebug(@ptrCast(&game_engine), handleInput, update);
 }
 
 // Input handler callback
 fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
     _ = eng;
     const self = @as(*ze.core.Engine, @alignCast(@ptrCast(ctx)));
+
+    // Process debug keys manually to ensure toggles work
+    self.debug_system.processDebugKeys(self);
 
     // Create a new rectangle at mouse position on click
     if (rl.isMouseButtonPressed(rl.MouseButton.left)) {

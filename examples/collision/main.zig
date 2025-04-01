@@ -28,7 +28,8 @@ pub fn main() !void {
     game_engine.physics_world.velocity_iterations = 8;
 
     // Create the floor and walls
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(400, 550),
         .width = 700,
         .height = 20,
@@ -37,7 +38,8 @@ pub fn main() !void {
     });
 
     // Left wall
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(50, 300),
         .width = 20,
         .height = 500,
@@ -46,7 +48,8 @@ pub fn main() !void {
     });
 
     // Right wall
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(750, 300),
         .width = 20,
         .height = 500,
@@ -55,7 +58,8 @@ pub fn main() !void {
     });
 
     // Add some obstacles (static rectangles) to test collision
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(300, 400),
         .width = 100,
         .height = 20,
@@ -63,7 +67,8 @@ pub fn main() !void {
         .friction = 0.2,
     });
 
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(500, 300),
         .width = 100,
         .height = 20,
@@ -72,7 +77,8 @@ pub fn main() !void {
     });
 
     // Add a large test rectangle to clearly show circle collisions
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(400, 200),
         .width = 200,
         .height = 30,
@@ -81,7 +87,8 @@ pub fn main() !void {
     });
 
     // Add a bouncing circle
-    _ = try game_engine.physics_world.dynamic().circle(.{
+    _ = try game_engine.physics_world.addCircle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(200, 100),
         .radius = 20,
         .mass = 1.0,
@@ -103,7 +110,8 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
     if (rl.isKeyPressed(rl.KeyboardKey.space)) {
         // Launch a new circle from the mouse position
         const mouse_pos = rl.getMousePosition();
-        _ = try self.physics_world.dynamic().circle(.{
+        _ = try self.physics_world.addCircle(.{
+            .type = .dynamic,
             .position = ze.math.Vector2.init(mouse_pos.x, mouse_pos.y),
             .radius = 15 + @as(f32, @floatFromInt(rl.getRandomValue(0, 10))),
             .mass = 1.0,
@@ -153,7 +161,8 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
         }
 
         // Add a new circle
-        _ = try self.physics_world.dynamic().circle(.{
+        _ = try self.physics_world.addCircle(.{
+            .type = .dynamic,
             .position = ze.math.Vector2.init(200, 100),
             .radius = 20,
             .mass = 1.0,

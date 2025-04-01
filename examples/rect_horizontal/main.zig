@@ -31,7 +31,8 @@ pub fn main() !void {
     game_engine.physics_world.velocity_iterations = 8;
 
     // Create the floor (very thin)
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(400, 590),
         .width = 800,
         .height = 10,
@@ -40,7 +41,8 @@ pub fn main() !void {
     });
 
     // Left wall
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(10, 300),
         .width = 20,
         .height = 600,
@@ -49,7 +51,8 @@ pub fn main() !void {
     });
 
     // Right wall
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(790, 300),
         .width = 20,
         .height = 600,
@@ -67,7 +70,8 @@ pub fn main() !void {
     // });
 
     // Add a dynamic rectangle that will collide horizontally
-    _ = try game_engine.physics_world.dynamic().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(200, 300),
         .width = 40,
         .height = 40,
@@ -78,7 +82,8 @@ pub fn main() !void {
     });
 
     // Add another dynamic rectangle on the other side
-    _ = try game_engine.physics_world.dynamic().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(600, 300),
         .width = 40,
         .height = 40,
@@ -117,7 +122,8 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
     // Launch a new rectangle from the right or left with A/D keys
     if (rl.isKeyPressed(rl.KeyboardKey.a)) {
         // Add a new rectangle from the left
-        _ = try self.physics_world.dynamic().rectangle(.{
+        _ = try self.physics_world.addRectangle(.{
+            .type = .dynamic,
             .position = ze.math.Vector2.init(50, 300),
             .width = 40,
             .height = 40,
@@ -130,7 +136,8 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
 
     if (rl.isKeyPressed(rl.KeyboardKey.d)) {
         // Add a new rectangle from the right
-        _ = try self.physics_world.dynamic().rectangle(.{
+        _ = try self.physics_world.addRectangle(.{
+            .type = .dynamic,
             .position = ze.math.Vector2.init(750, 300),
             .width = 40,
             .height = 40,
@@ -156,7 +163,8 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
         }
 
         // Add two new rectangles
-        _ = try self.physics_world.dynamic().rectangle(.{
+        _ = try self.physics_world.addRectangle(.{
+            .type = .dynamic,
             .position = ze.math.Vector2.init(200, 300),
             .width = 40,
             .height = 40,
@@ -166,7 +174,8 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
             .velocity = ze.math.Vector2.init(200, 0),
         });
 
-        _ = try self.physics_world.dynamic().rectangle(.{
+        _ = try self.physics_world.addRectangle(.{
+            .type = .dynamic,
             .position = ze.math.Vector2.init(600, 300),
             .width = 40,
             .height = 40,

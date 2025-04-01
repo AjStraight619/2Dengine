@@ -11,7 +11,252 @@ pub const BodyType = enum {
     kinematic,
 };
 
+/// Body creation functionality - extracted from PhysicsWorld
+pub const BodyCreator = struct {
+    /// Helper function to convert degrees to radians for more intuitive API
+    pub fn degreesToRadians(degrees: f32) f32 {
+        return std.math.degreesToRadians(degrees);
+    }
+
+    /// Create a new body with the specified type
+    pub fn createBodyWithType(
+        allocator: std.mem.Allocator,
+        body_type: BodyType,
+        shape: Shape,
+        position: Vector2,
+        next_body_id: *u64,
+        bodies: *std.ArrayList(*RigidBody),
+    ) !*RigidBody {
+        const body = try allocator.create(RigidBody);
+        const mass: f32 = switch (body_type) {
+            .static => std.math.floatMax(f32),
+            .dynamic => 1.0, // Default mass for dynamic bodies
+            .kinematic => 0.0, // Kinematic bodies don't respond to forces
+        };
+
+        body.* = RigidBody.init(body_type, position, shape, mass);
+
+        // Assign a unique ID and increment the counter
+        body.id = next_body_id.*;
+        next_body_id.* += 1;
+
+        try bodies.append(body);
+        return body;
+    }
+
+    /// Apply properties to a body
+    pub fn applyBodyProperties(
+        body: *RigidBody,
+        shape: Shape,
+        properties: anytype,
+    ) void {
+        // Apply additional properties based on the body type
+        if (@hasField(@TypeOf(properties), "mass") and properties.mass != null and body.body_type == .dynamic) {
+            body.mass = properties.mass.?;
+            body.inverse_mass = if (properties.mass.? <= 0.0) 0.0 else 1.0 / properties.mass.?;
+            body.inertia = ShapeProperties.getMomentOfInertia(shape, properties.mass.?);
+            body.inverse_inertia = if (body.inertia <= 0.0) 0.0 else 1.0 / body.inertia;
+        }
+
+        if (@hasField(@TypeOf(properties), "restitution") and properties.restitution != null) {
+            body.restitution = properties.restitution.?;
+        }
+
+        if (@hasField(@TypeOf(properties), "friction") and properties.friction != null) {
+            body.friction = properties.friction.?;
+        }
+
+        if (@hasField(@TypeOf(properties), "velocity") and properties.velocity != null) {
+            body.velocity = properties.velocity.?;
+        }
+
+        if (@hasField(@TypeOf(properties), "angular_velocity") and properties.angular_velocity != null) {
+            body.angular_velocity = properties.angular_velocity.?;
+        }
+
+        if (@hasField(@TypeOf(properties), "rotation") and properties.rotation != null) {
+            body.rotation = properties.rotation.?;
+        }
+    }
+
+    /// Create a body with any type of shape
+    pub fn createBody(
+        allocator: std.mem.Allocator,
+        properties: struct {
+            type: BodyType,
+            shape: Shape,
+            position: Vector2,
+            mass: ?f32 = null,
+            restitution: ?f32 = null,
+            friction: ?f32 = null,
+            velocity: ?Vector2 = null,
+            angular_velocity: ?f32 = null,
+            rotation: ?f32 = null,
+            initial_force: ?Vector2 = null,
+        },
+        next_body_id: *u64,
+        bodies: *std.ArrayList(*RigidBody),
+    ) !*RigidBody {
+        const body = try createBodyWithType(allocator, properties.type, properties.shape, properties.position, next_body_id, bodies);
+
+        applyBodyProperties(body, properties.shape, properties);
+
+        // Apply initial force if provided
+        if (properties.initial_force != null and body.body_type == .dynamic) {
+            body.force = properties.initial_force.?;
+        }
+
+        return body;
+    }
+
+    /// Create a circle body with properties
+    pub fn createCircle(
+        allocator: std.mem.Allocator,
+        properties: struct {
+            type: BodyType,
+            position: Vector2,
+            radius: f32,
+            mass: ?f32 = null,
+            restitution: ?f32 = null,
+            friction: ?f32 = null,
+            velocity: ?Vector2 = null,
+            angular_velocity: ?f32 = null,
+            rotation: ?f32 = null,
+            initial_force: ?Vector2 = null,
+        },
+        next_body_id: *u64,
+        bodies: *std.ArrayList(*RigidBody),
+    ) !*RigidBody {
+        const shape = Shape{ .circle = .{ .radius = properties.radius } };
+
+        // Create the body with basic properties
+        const body = try createBody(allocator, .{
+            .type = properties.type,
+            .shape = shape,
+            .position = properties.position,
+            .mass = properties.mass,
+            .restitution = properties.restitution,
+            .friction = properties.friction,
+            .velocity = properties.velocity,
+            .angular_velocity = properties.angular_velocity,
+            .rotation = properties.rotation,
+            .initial_force = properties.initial_force,
+        }, next_body_id, bodies);
+
+        // Apply initial force if provided
+        if (properties.initial_force != null and body.body_type == .dynamic) {
+            body.force = properties.initial_force.?;
+        }
+
+        return body;
+    }
+
+    /// Wrapper function that accepts any struct type for creating circles
+    pub fn createCircleFromWorld(
+        allocator: std.mem.Allocator,
+        world_properties: anytype,
+        next_body_id: *u64,
+        bodies: *std.ArrayList(*RigidBody),
+    ) !*RigidBody {
+        // Create circle shape
+        const shape = Shape{ .circle = .{ .radius = world_properties.radius } };
+
+        // Create the body
+        const body = try createBodyWithType(allocator, world_properties.type, shape, world_properties.position, next_body_id, bodies);
+
+        // Apply properties
+        applyBodyProperties(body, shape, world_properties);
+
+        // Apply initial force if provided
+        if (@hasField(@TypeOf(world_properties), "initial_force") and
+            world_properties.initial_force != null and
+            body.body_type == .dynamic)
+        {
+            body.force = world_properties.initial_force.?;
+        }
+
+        return body;
+    }
+
+    /// Create a rectangle body with properties, accepting angle in degrees for better usability
+    pub fn createRectangle(
+        allocator: std.mem.Allocator,
+        properties: struct {
+            type: BodyType,
+            position: Vector2,
+            width: f32,
+            height: f32,
+            angle_degrees: ?f32 = null, // Angle in degrees for better usability
+            mass: ?f32 = null,
+            restitution: ?f32 = null,
+            friction: ?f32 = null,
+            velocity: ?Vector2 = null,
+            angular_velocity: ?f32 = null,
+            rotation: ?f32 = null,
+        },
+        next_body_id: *u64,
+        bodies: *std.ArrayList(*RigidBody),
+    ) !*RigidBody {
+        // Convert degrees to radians for internal use
+        const angle_degrees = properties.angle_degrees orelse 0.0;
+        const angle_radians = degreesToRadians(angle_degrees);
+
+        const shape = Shape{ .rectangle = .{ .width = properties.width, .height = properties.height, .angle = angle_radians } };
+
+        return try createBody(allocator, .{
+            .type = properties.type,
+            .shape = shape,
+            .position = properties.position,
+            .mass = properties.mass,
+            .restitution = properties.restitution,
+            .friction = properties.friction,
+            .velocity = properties.velocity,
+            .angular_velocity = properties.angular_velocity,
+            .rotation = properties.rotation,
+            .initial_force = null,
+        }, next_body_id, bodies);
+    }
+
+    /// Wrapper function that accepts any struct type for creating rectangles
+    pub fn createRectangleFromWorld(
+        allocator: std.mem.Allocator,
+        world_properties: anytype,
+        next_body_id: *u64,
+        bodies: *std.ArrayList(*RigidBody),
+    ) !*RigidBody {
+        // Convert degrees to radians for internal use
+        const angle_degrees = if (@hasField(@TypeOf(world_properties), "angle_degrees"))
+            (world_properties.angle_degrees orelse 0.0)
+        else
+            0.0;
+
+        const angle_radians = degreesToRadians(angle_degrees);
+
+        // Create rectangle shape
+        const shape = Shape{ .rectangle = .{ .width = world_properties.width, .height = world_properties.height, .angle = angle_radians } };
+
+        // Create the body
+        const body = try createBodyWithType(allocator, world_properties.type, shape, world_properties.position, next_body_id, bodies);
+
+        // Apply properties
+        applyBodyProperties(body, shape, world_properties);
+
+        // Apply initial force if provided
+        if (@hasField(@TypeOf(world_properties), "initial_force") and
+            world_properties.initial_force != null and
+            body.body_type == .dynamic)
+        {
+            body.force = world_properties.initial_force.?;
+        }
+
+        return body;
+    }
+};
+
 pub const RigidBody = struct {
+    // Unique identifier
+    id: u64 = 0,
+
     // Basic properties
     body_type: BodyType,
     position: Vector2,
@@ -170,7 +415,8 @@ pub const RigidBody = struct {
             // Scale down velocity to maximum
             self.velocity = self.velocity.scale(max_velocity / vel_length);
             // Log the capping
-            std.debug.print("🛑 VELOCITY CAPPED: body at ({d:.2},{d:.2}) - Original: {d:.2}, Capped to: {d:.2}\n", .{ self.position.x, self.position.y, vel_length, max_velocity });
+            const logger = @import("../logger.zig");
+            logger.warning(.stability, "VELOCITY CAPPED: body at ({d:.2},{d:.2}) - Original: {d:.2}, Capped to: {d:.2}", .{ self.position.x, self.position.y, vel_length, max_velocity });
         }
     }
 
@@ -203,6 +449,7 @@ pub const RigidBody = struct {
         // Reasonable maximum values for a stable simulation
         const max_velocity: f32 = 1000.0;
         const max_angular_velocity: f32 = 50.0;
+        const logger = @import("../logger.zig");
 
         // Cap linear velocity
         self.capVelocity(max_velocity);
@@ -214,8 +461,8 @@ pub const RigidBody = struct {
 
         // Check for invalid state
         if (self.hasInvalidState()) {
-            std.debug.print("⚠️ INVALID PHYSICS STATE DETECTED AND FIXED:\n", .{});
-            std.debug.print("  Position: ({d},{d}), Velocity: ({d},{d})\n", .{ self.position.x, self.position.y, self.velocity.x, self.velocity.y });
+            logger.err(.stability, "INVALID PHYSICS STATE DETECTED AND FIXED", .{});
+            logger.err(.stability, "Position: ({d},{d}), Velocity: ({d},{d})", .{ self.position.x, self.position.y, self.velocity.x, self.velocity.y });
 
             // Reset to a safe state
             if (std.math.isNan(self.position.x) or std.math.isInf(self.position.x)) self.position.x = 0;
@@ -239,33 +486,70 @@ pub const RigidBody = struct {
     /// Check if body should be put to sleep (has very low velocity for some time)
     pub fn updateSleepState(self: *RigidBody, dt: f32) void {
         if (self.body_type != .dynamic) return;
+        const logger = @import("../logger.zig");
 
-        const sleep_velocity_threshold = 0.05;
-        const sleep_angular_threshold = 0.02;
-        const time_until_sleep = 1.0; // seconds
+        // More aggressive sleep thresholds for better stability
+        const sleep_velocity_threshold = 0.02; // Reduced from 0.05
+        const sleep_angular_threshold = 0.01; // Reduced from 0.02
+        const time_until_sleep = 0.5; // Reduced from 1.0 second
+        const consecutive_frames_for_sleep = 10; // New: require several consecutive frames of low velocity
 
         // Check if velocity is below sleeping threshold
-        if (self.velocity.lengthSquared() < sleep_velocity_threshold * sleep_velocity_threshold and
-            @abs(self.angular_velocity) < sleep_angular_threshold)
-        {
+        const velocity_sq = self.velocity.lengthSquared();
+        const is_below_threshold =
+            velocity_sq < sleep_velocity_threshold * sleep_velocity_threshold and
+            @abs(self.angular_velocity) < sleep_angular_threshold;
+
+        if (is_below_threshold) {
+            // Track consecutive low velocity frames
+            self.low_velocity_frames += 1;
+
             // Accumulate sleep time
             self.sleep_time += dt;
 
-            // If below threshold for long enough, put to sleep
-            if (self.sleep_time > time_until_sleep) {
+            // If extremely low velocity, force sleep faster
+            if (velocity_sq < 0.0001) {
+                self.sleep_time += dt * 2.0; // Accelerate sleep time
+            }
+
+            // If below threshold for long enough OR enough consecutive low-velocity frames, put to sleep
+            if (self.sleep_time > time_until_sleep or self.low_velocity_frames >= consecutive_frames_for_sleep) {
                 self.is_sleeping = true;
-                self.velocity = Vector2.zero();
+                self.velocity = Vector2.zero(); // Explicitly zero out velocity
                 self.angular_velocity = 0.0;
+
+                // Log when we put a body to sleep
+                logger.debug(.sleep, "Body at ({d:.1}, {d:.1}) PUT TO SLEEP (v={d:.4}, frames={d})", .{ self.position.x, self.position.y, @sqrt(velocity_sq), self.low_velocity_frames });
             }
         } else {
-            // Reset sleep counter if moving
+            // Reset sleep counter if moving significantly
             self.sleep_time = 0.0;
-            self.is_sleeping = false;
+            self.low_velocity_frames = 0;
+
+            // Only wake up if previously sleeping and now substantial movement
+            if (self.is_sleeping and velocity_sq > sleep_velocity_threshold * sleep_velocity_threshold * 4.0) {
+                self.is_sleeping = false;
+                logger.debug(.sleep, "Body at ({d:.1}, {d:.1}) WOKE UP (v={d:.4})", .{ self.position.x, self.position.y, @sqrt(velocity_sq) });
+            }
         }
     }
 
     /// Wake up a sleeping body
     pub fn wakeUp(self: *RigidBody) void {
+        const logger = @import("../logger.zig");
+
+        // Don't wake up bodies with barely any force/velocity - this prevents jitter
+        const min_force_for_wakeup = 0.5;
+        const min_velocity_for_wakeup = 0.1;
+
+        // Only wake up if there's sufficient force or velocity to justify it
+        if (self.force.lengthSquared() < min_force_for_wakeup * min_force_for_wakeup and
+            self.velocity.lengthSquared() < min_velocity_for_wakeup * min_velocity_for_wakeup)
+        {
+            logger.debug(.sleep, "IGNORED WAKE: Force/velocity too small to wake body", .{});
+            return;
+        }
+
         self.is_sleeping = false;
         self.sleep_time = 0.0;
         self.low_velocity_frames = 0; // Reset the frame counter too

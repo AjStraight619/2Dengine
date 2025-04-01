@@ -41,7 +41,8 @@ pub fn main() !void {
 
     // Create floor with various friction values
     // Low friction section (left)
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(200, 500),
         .width = 400,
         .height = 20,
@@ -50,7 +51,8 @@ pub fn main() !void {
     });
 
     // High friction section (right)
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(600, 500),
         .width = 400,
         .height = 20,
@@ -59,7 +61,8 @@ pub fn main() !void {
     });
 
     // Left and right walls
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(10, 300),
         .width = 20,
         .height = 600,
@@ -67,7 +70,8 @@ pub fn main() !void {
         .friction = 0.5,
     });
 
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(790, 300),
         .width = 20,
         .height = 600,
@@ -152,7 +156,8 @@ fn onSpawnLowFrictionBox(context: *anyopaque) void {
     const ctx = @as(*InputContext, @ptrCast(@alignCast(context)));
 
     // Add a box with low friction
-    _ = ctx.engine.physics_world.dynamic().rectangle(.{
+    _ = ctx.engine.physics_world.addRectangle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(100, 200),
         .width = 40,
         .height = 40,
@@ -167,7 +172,8 @@ fn onSpawnMediumFrictionBox(context: *anyopaque) void {
     const ctx = @as(*InputContext, @ptrCast(@alignCast(context)));
 
     // Add a box with medium friction
-    _ = ctx.engine.physics_world.dynamic().rectangle(.{
+    _ = ctx.engine.physics_world.addRectangle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(100, 200),
         .width = 40,
         .height = 40,
@@ -182,7 +188,8 @@ fn onSpawnHighFrictionBox(context: *anyopaque) void {
     const ctx = @as(*InputContext, @ptrCast(@alignCast(context)));
 
     // Add a box with high friction
-    _ = ctx.engine.physics_world.dynamic().rectangle(.{
+    _ = ctx.engine.physics_world.addRectangle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(100, 200),
         .width = 40,
         .height = 40,
@@ -197,11 +204,12 @@ fn onSpawnLowFrictionCircle(context: *anyopaque) void {
     const ctx = @as(*InputContext, @ptrCast(@alignCast(context)));
 
     // Add a circle with low friction
-    _ = ctx.engine.physics_world.dynamic().circle(.{
+    _ = ctx.engine.physics_world.addCircle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(100, 200),
         .radius = 20,
         .mass = 1.0,
-        .restitution = 0.1,
+        .restitution = 0.9,
         .friction = 0.1, // Low friction
         .velocity = ze.math.Vector2.init(200, 0), // Initial velocity to the right
     }) catch unreachable;
@@ -211,11 +219,12 @@ fn onSpawnHighFrictionCircle(context: *anyopaque) void {
     const ctx = @as(*InputContext, @ptrCast(@alignCast(context)));
 
     // Add a circle with high friction
-    _ = ctx.engine.physics_world.dynamic().circle(.{
+    _ = ctx.engine.physics_world.addCircle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(100, 200),
         .radius = 20,
         .mass = 1.0,
-        .restitution = 0.1,
+        .restitution = 0.9,
         .friction = 0.9, // High friction
         .velocity = ze.math.Vector2.init(200, 0), // Initial velocity to the right
     }) catch unreachable;

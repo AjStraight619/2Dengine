@@ -31,7 +31,8 @@ pub fn main() !void {
     game_engine.physics_world.velocity_iterations = 8;
 
     // Create the floor
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(400, 550),
         .width = 800,
         .height = 20,
@@ -40,7 +41,8 @@ pub fn main() !void {
     });
 
     // Left wall
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(10, 300),
         .width = 20,
         .height = 600,
@@ -49,7 +51,8 @@ pub fn main() !void {
     });
 
     // Right wall
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(790, 300),
         .width = 20,
         .height = 600,
@@ -58,7 +61,8 @@ pub fn main() !void {
     });
 
     // Create horizontal platforms at different heights
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(250, 400),
         .width = 200,
         .height = 20,
@@ -66,7 +70,8 @@ pub fn main() !void {
         .friction = 0.2,
     });
 
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(550, 250),
         .width = 200,
         .height = 20,
@@ -75,7 +80,8 @@ pub fn main() !void {
     });
 
     // Create a dynamic rectangle that will fall and collide vertically
-    _ = try game_engine.physics_world.dynamic().circle(.{
+    _ = try game_engine.physics_world.addCircle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(250, 100),
         .radius = 20,
         .mass = 1.0,
@@ -84,7 +90,8 @@ pub fn main() !void {
     });
 
     // Create another dynamic rectangle on a higher platform
-    _ = try game_engine.physics_world.dynamic().circle(.{
+    _ = try game_engine.physics_world.addCircle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(550, 100),
         .radius = 20,
         .mass = 1.0,
@@ -104,7 +111,8 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
     // Create a new rectangle at mouse position on click
     if (rl.isMouseButtonPressed(rl.MouseButton.left)) {
         const mouse_pos = rl.getMousePosition();
-        _ = try self.physics_world.dynamic().rectangle(.{
+        _ = try self.physics_world.addRectangle(.{
+            .type = .dynamic,
             .position = ze.math.Vector2.init(mouse_pos.x, mouse_pos.y),
             .width = 40,
             .height = 40,
@@ -155,7 +163,8 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
         }
 
         // Add two new rectangles at starting positions
-        _ = try self.physics_world.dynamic().rectangle(.{
+        _ = try self.physics_world.addRectangle(.{
+            .type = .dynamic,
             .position = ze.math.Vector2.init(250, 100),
             .width = 40,
             .height = 40,
@@ -164,7 +173,8 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
             .friction = 0.2,
         });
 
-        _ = try self.physics_world.dynamic().rectangle(.{
+        _ = try self.physics_world.addRectangle(.{
+            .type = .dynamic,
             .position = ze.math.Vector2.init(550, 100),
             .width = 40,
             .height = 40,

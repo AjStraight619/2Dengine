@@ -19,26 +19,30 @@ pub fn main() !void {
     defer game_engine.deinit();
 
     // Create a bouncing circle with the unified options struct
-    const circle = try game_engine.physics_world.dynamic().circle(.{
+    const circle = try game_engine.physics_world.addCircle(.{
+        .type = .dynamic,
         .position = ze.math.Vector2.init(400, 100),
-        .radius = 30,
+        .radius = 20,
         .mass = 1.0,
-        .restitution = 0.8,
-        .friction = 0.05,
+        .restitution = 0.7,
+        .friction = 0.2,
         .initial_force = ze.math.Vector2.init(0, 300),
     });
     _ = circle; // Use the circle variable to avoid unused warning
 
     // Add static floor and walls with the unified options structs
-    _ = try game_engine.physics_world.static().rectangle(.{
-        .position = ze.math.Vector2.init(400, 550),
-        .width = 700,
-        .height = 20,
-        .restitution = 0.5,
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
+        .position = ze.math.Vector2.init(400, 200),
+        .width = 200,
+        .height = 30,
+        .angle_degrees = 30.0,
+        .restitution = 0.7,
         .friction = 0.1,
     });
 
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(50, 300),
         .width = 20,
         .height = 600,
@@ -46,7 +50,8 @@ pub fn main() !void {
         .friction = 0.1,
     });
 
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(750, 300),
         .width = 20,
         .height = 600,
