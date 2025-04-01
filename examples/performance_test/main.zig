@@ -35,7 +35,8 @@ pub fn main() !void {
     game_engine.physics_world.setCollisionLogging(false); // Disable logging for performance
 
     // Create the floor and walls
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(400, 550),
         .width = 700,
         .height = 20,
@@ -44,7 +45,8 @@ pub fn main() !void {
     });
 
     // Left wall
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(50, 300),
         .width = 20,
         .height = 500,
@@ -53,7 +55,8 @@ pub fn main() !void {
     });
 
     // Right wall
-    _ = try game_engine.physics_world.static().rectangle(.{
+    _ = try game_engine.physics_world.addRectangle(.{
+        .type = .static,
         .position = ze.math.Vector2.init(750, 300),
         .width = 20,
         .height = 500,
@@ -150,7 +153,8 @@ fn addBatchOfObjects(engine: *ze.core.Engine, count: usize) !void {
         // Add a random shape - 50% chance of circle, 50% chance of rectangle
         if (rl.getRandomValue(0, 1) == 0) {
             // Add rectangle
-            _ = try engine.physics_world.dynamic().rectangle(.{
+            _ = try engine.physics_world.addRectangle(.{
+                .type = .dynamic,
                 .position = ze.math.Vector2.init(x, y),
                 .width = size,
                 .height = size,
@@ -160,7 +164,8 @@ fn addBatchOfObjects(engine: *ze.core.Engine, count: usize) !void {
             });
         } else {
             // Add circle
-            _ = try engine.physics_world.dynamic().circle(.{
+            _ = try engine.physics_world.addCircle(.{
+                .type = .dynamic,
                 .position = ze.math.Vector2.init(x, y),
                 .radius = size / 2.0, // Half the rectangle size
                 .mass = 1.0,
