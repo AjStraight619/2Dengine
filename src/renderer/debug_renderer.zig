@@ -79,10 +79,18 @@ pub const DebugRenderer = struct {
             const normalized_force = body.force.normalize();
             drawArrowhead(end_x, end_y, normalized_force, 10.0, self.force_color);
 
-            // Draw force magnitude text
+            // Draw force magnitude text with background for better readability
             var force_text_buf: [32]u8 = undefined;
-            const force_text = std.fmt.bufPrintZ(&force_text_buf, "{d:.1}", .{body.force.length()}) catch "?";
-            rl.drawText(@ptrCast(force_text), end_x + 5, end_y + 5, 15, self.force_color);
+            const force_text = std.fmt.bufPrintZ(&force_text_buf, "F: {d:.0}", .{body.force.length()}) catch "?";
+
+            // Draw background for text
+            const text_bg_color = rl.Color{ .r = 230, .g = 255, .b = 230, .a = 220 };
+            const text_width = 50;
+            const text_height = 20;
+            rl.drawRectangle(end_x + 2, end_y - 10, text_width, text_height, text_bg_color);
+
+            // Draw text with black for better visibility
+            rl.drawText(@ptrCast(force_text), end_x + 5, end_y - 5, 15, rl.Color.black);
         }
     }
 

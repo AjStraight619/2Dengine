@@ -75,7 +75,10 @@ pub const DebugSystem = struct {
     pub fn processDebugKeys(self: *DebugSystem, engine: anytype) void {
         // Toggle debug mode (D key)
         if (rl.isKeyPressed(rl.KeyboardKey.d)) {
-            onToggleDebug(@ptrCast(engine));
+            engine.debug_mode = !engine.debug_mode;
+            engine.physics_renderer.setDebugMode(engine.debug_mode);
+            self.debug_mode = engine.debug_mode;
+            std.debug.print("Debug mode: {}\n", .{engine.debug_mode});
         }
 
         // Conditional debug features only available in debug mode
@@ -300,31 +303,42 @@ pub const DebugSystem = struct {
     }
 
     /// Draw debug info for all dynamic bodies in the physics world
-    pub fn drawAllBodiesDebugInfo(self: *DebugSystem, world: anytype, color: rl.Color) void {
+    pub fn drawAllBodiesDebugInfo(self: *DebugSystem, world: anytype, _: rl.Color) void {
         _ = self; // Currently unused
+
+        // Use a background and better contrast color for text
+        const text_color = rl.Color.black;
+        const bg_color = rl.Color{ .r = 255, .g = 255, .b = 200, .a = 200 };
 
         // Draw velocity and sleep status for each dynamic body
         for (world.bodies.items) |body| {
             if (body.body_type == .dynamic) {
-                // Draw velocity text above each object
-                var pos_text_buf: [64]u8 = undefined;
-                const pos_text = std.fmt.bufPrintZ(&pos_text_buf, "v = ({d:.2}, {d:.2})", .{ body.velocity.x, body.velocity.y }) catch "??";
-
+                // Get screen positions
                 const screen_pos_x = @as(i32, @intFromFloat(body.position.x));
                 const screen_pos_y = @as(i32, @intFromFloat(body.position.y)) - 25;
 
-                // Draw velocity in white text
-                rl.drawText(@ptrCast(pos_text), screen_pos_x - 50, screen_pos_y, 15, color);
+                // Calculate text dimensions for background
+                const text_width = 100; // Approximate width
+                const text_height = 20; // Approximate height
+
+                // Draw a background for better readability
+                rl.drawRectangle(screen_pos_x - 55, screen_pos_y - 20, text_width, text_height * 3, bg_color);
+
+                // Draw velocity
+                var pos_text_buf: [64]u8 = undefined;
+                const pos_text = std.fmt.bufPrintZ(&pos_text_buf, "v=({d:.1},{d:.1})", .{ body.velocity.x, body.velocity.y }) catch "??";
+                rl.drawText(@ptrCast(pos_text), screen_pos_x - 50, screen_pos_y, 15, text_color);
 
                 // Draw sleep status
                 const sleep_text = if (body.is_sleeping) "SLEEPING" else "AWAKE";
-                const sleep_color = if (body.is_sleeping) rl.Color.green else rl.Color.red;
+                // Define custom colors since dark_green and dark_red aren't available
+                const sleep_color = if (body.is_sleeping)
+                    rl.Color{ .r = 0, .g = 120, .b = 0, .a = 255 } // Custom dark green
+                else
+                    rl.Color{ .r = 180, .g = 0, .b = 0, .a = 255 }; // Custom dark red
                 rl.drawText(sleep_text, screen_pos_x - 30, screen_pos_y - 15, 15, sleep_color);
 
-                // Draw frames count to sleep
-                var sleep_count_buf: [32]u8 = undefined;
-                const sleep_count_text = std.fmt.bufPrintZ(&sleep_count_buf, "frames: {d}/10", .{body.low_velocity_frames}) catch "??";
-                rl.drawText(@ptrCast(sleep_count_text), screen_pos_x - 40, screen_pos_y + 15, 15, rl.Color.gray);
+                // No need to draw frames to sleep count - reduce info overload
             }
         }
     }

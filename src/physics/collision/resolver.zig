@@ -409,6 +409,33 @@ pub const CollisionResolver = struct {
         const is_vertical = @abs(collision.normal.y) > 0.9;
         const is_ground_collision = is_vertical and collision.normal.y < 0;
 
+        // Track if we zeroed velocity due to very low speed
+        var velocity_zeroed = false;
+
+        // IMPROVEMENT: Stop objects with very low horizontal velocity
+        // This helps prevent objects from sliding indefinitely at low speeds
+        const velocity_threshold = 0.03; // Very low velocity threshold
+        if (is_ground_collision) {
+            if (a.body_type == .dynamic and @abs(a.velocity.x) < velocity_threshold) {
+                a.velocity.x = 0.0;
+                a.low_velocity_frames += 1;
+                velocity_zeroed = true;
+                std.debug.print("Small velocity zeroed on ground (A): {d:.6} -> 0.0\n", .{a.velocity.x});
+            }
+
+            if (b.body_type == .dynamic and @abs(b.velocity.x) < velocity_threshold) {
+                b.velocity.x = 0.0;
+                b.low_velocity_frames += 1;
+                velocity_zeroed = true;
+                std.debug.print("Small velocity zeroed on ground (B): {d:.6} -> 0.0\n", .{b.velocity.x});
+            }
+        }
+
+        // Exit early if we've already zeroed the velocities
+        if (velocity_zeroed and @abs(relative_velocity.x) < velocity_threshold) {
+            return;
+        }
+
         // Calculate tangent vector (perpendicular to normal)
         var tangent = CollisionPhysics.calculateFrictionTangent(relative_velocity, collision.normal, normal_velocity);
         const tangent_length = tangent.length();
@@ -436,13 +463,32 @@ pub const CollisionResolver = struct {
         // Coulomb's Law of Friction (max_friction = mu * normal_force)
         var friction_coef = CollisionPhysics.calculateFrictionCoefficient(a.friction, b.friction);
 
+        // IMPROVEMENT: Increase rolling friction coefficients to slow objects down faster
         // Special case: Increase friction for ground contacts to properly handle rolling
         if (is_ground_collision) {
             // Both static and kinetic friction apply to rolling objects on ground
-            if (tangent_length < 0.1) {
-                // Static friction (rolling resistance) - slightly stronger
-                friction_coef *= 1.2;
-                std.debug.print("ROLLING RESISTANCE: Applying static friction to rolling object\n", .{});
+            if (tangent_length < 0.2) {
+                // Static friction (rolling resistance) - STRONGER than before
+                friction_coef *= 2.0; // Increased from 1.2
+                std.debug.print("INCREASED ROLLING RESISTANCE: Applying stronger static friction (coef={d:.4})\n", .{friction_coef});
+            }
+
+            // FRICTION FIX: Apply direct horizontal damping for ground contacts
+            // This directly reduces horizontal velocity proportional to friction coefficient
+            if (b.body_type == .dynamic and @abs(b.velocity.x) > velocity_threshold) {
+                // Calculate a direct horizontal friction impulse
+                const direct_friction = b.velocity.x * b.mass * -0.05 * friction_coef;
+
+                // Apply the friction directly to the horizontal velocity
+                b.velocity.x += direct_friction * b.inverse_mass;
+            }
+
+            if (a.body_type == .dynamic and @abs(a.velocity.x) > velocity_threshold) {
+                // Calculate a direct horizontal friction impulse
+                const direct_friction = a.velocity.x * a.mass * -0.05 * friction_coef;
+
+                // Apply the friction directly to the horizontal velocity
+                a.velocity.x += direct_friction * a.inverse_mass;
             }
         }
 
@@ -451,41 +497,24 @@ pub const CollisionResolver = struct {
             (ra.cross(tangent) * ra.cross(tangent)) * a.inverse_inertia +
             (rb.cross(tangent) * rb.cross(tangent)) * b.inverse_inertia);
 
+        // IMPROVEMENT: For very slow objects, calculate exact friction needed to stop them
         // Ensure minimum friction for very slow-moving objects on ground
-        if (is_ground_collision and @abs(j_t) < 0.01 and
-            ((@abs(a.velocity.x) > 0.01 and a.body_type == .dynamic) or
-                (@abs(b.velocity.x) > 0.01 and b.body_type == .dynamic)))
-        {
-            // For extremely slow-moving objects, just stop them completely
-            if (a.body_type == .dynamic and @abs(a.velocity.x) < 0.1) {
-                a.velocity.x = 0;
-                a.low_velocity_frames += 1;
-                std.debug.print("RESTING CONTACT: Zeroing extremely slow A velocity\n", .{});
-                j_t = 0; // No impulse needed
-            } else if (b.body_type == .dynamic and @abs(b.velocity.x) < 0.1) {
-                b.velocity.x = 0;
-                b.low_velocity_frames += 1;
-                std.debug.print("RESTING CONTACT: Zeroing extremely slow B velocity\n", .{});
-                j_t = 0; // No impulse needed
-            } else {
-                // FIX: Calculate the exact impulse needed to stop the object
-                if (a.body_type == .dynamic and @abs(a.velocity.x) > 0.001) {
-                    // Calculate the impulse needed to stop the object exactly (not overshoot)
-                    const impulse_to_stop_a = -a.velocity.x * a.mass;
-                    j_t = std.math.clamp(j_t, -@abs(impulse_to_stop_a), @abs(impulse_to_stop_a));
-                    std.debug.print("EXACT FRICTION: Applying just enough to stop object A: {d:.6}\n", .{j_t});
-                } else if (b.body_type == .dynamic and @abs(b.velocity.x) > 0.001) {
-                    // Calculate the impulse needed to stop the object exactly (not overshoot)
-                    const impulse_to_stop_b = -b.velocity.x * b.mass;
-                    j_t = std.math.clamp(j_t, -@abs(impulse_to_stop_b), @abs(impulse_to_stop_b));
-                    std.debug.print("EXACT FRICTION: Applying just enough to stop object B: {d:.6}\n", .{j_t});
-                } else {
-                    // Extremely small velocity - just zero it out completely
-                    if (a.body_type == .dynamic) a.velocity.x = 0;
-                    if (b.body_type == .dynamic) b.velocity.x = 0;
-                    j_t = 0; // No friction impulse needed
-                    std.debug.print("ZEROING VELOCITY: Objects essentially at rest\n", .{});
-                }
+        const slow_velocity_threshold = 0.2;
+        if (is_ground_collision) {
+            if (a.body_type == .dynamic and @abs(a.velocity.x) > 0.0 and @abs(a.velocity.x) < slow_velocity_threshold) {
+                // Calculate the impulse needed to stop A completely
+                const impulse_to_stop_a = -a.velocity.x * a.mass;
+                const original_j_t = j_t;
+                j_t = std.math.clamp(j_t, -@abs(impulse_to_stop_a) * 1.5, @abs(impulse_to_stop_a) * 1.5);
+                std.debug.print("STOPPING FRICTION: Object A vel={d:.6}, using j_t={d:.6} (was {d:.6})\n", .{ a.velocity.x, j_t, original_j_t });
+            }
+
+            if (b.body_type == .dynamic and @abs(b.velocity.x) > 0.0 and @abs(b.velocity.x) < slow_velocity_threshold) {
+                // Calculate the impulse needed to stop B completely
+                const impulse_to_stop_b = -b.velocity.x * b.mass;
+                const original_j_t = j_t;
+                j_t = std.math.clamp(j_t, -@abs(impulse_to_stop_b) * 1.5, @abs(impulse_to_stop_b) * 1.5);
+                std.debug.print("STOPPING FRICTION: Object B vel={d:.6}, using j_t={d:.6} (was {d:.6})\n", .{ b.velocity.x, j_t, original_j_t });
             }
         }
 
@@ -498,9 +527,6 @@ pub const CollisionResolver = struct {
         // Store initial velocities for debugging
         const a_vel_before = a.velocity;
         const b_vel_before = b.velocity;
-
-        // Debug print the friction impulse
-        std.debug.print("Friction impulse: ({d:.4},{d:.4})\n", .{ friction_impulse.x, friction_impulse.y });
 
         // CRITICAL FIX: Don't apply friction in the y-direction if it would cause the object to move upward
         var safe_friction_impulse = friction_impulse;
@@ -520,24 +546,38 @@ pub const CollisionResolver = struct {
         if (a.body_type == .dynamic) {
             a.velocity = a.velocity.add(safe_friction_impulse.scale(-a.inverse_mass));
             a.angular_velocity -= ra.cross(safe_friction_impulse) * a.inverse_inertia;
+
+            // IMPROVEMENT: Prevent velocity sign change due to friction (friction shouldn't reverse movement)
+            if (a_vel_before.x > 0 and a.velocity.x < 0) {
+                a.velocity.x = 0.0;
+                std.debug.print("PREVENTING FRICTION OVERSHOOT: A x-vel {d:.6} → 0.0 (was going to {d:.6})\n", .{ a_vel_before.x, a.velocity.x });
+            } else if (a_vel_before.x < 0 and a.velocity.x > 0) {
+                a.velocity.x = 0.0;
+                std.debug.print("PREVENTING FRICTION OVERSHOOT: A x-vel {d:.6} → 0.0 (was going to {d:.6})\n", .{ a_vel_before.x, a.velocity.x });
+            }
         }
 
         if (b.body_type == .dynamic) {
             b.velocity = b.velocity.add(safe_friction_impulse.scale(b.inverse_mass));
             b.angular_velocity += rb.cross(safe_friction_impulse) * b.inverse_inertia;
+
+            // IMPROVEMENT: Prevent velocity sign change due to friction (friction shouldn't reverse movement)
+            if (b_vel_before.x > 0 and b.velocity.x < 0) {
+                b.velocity.x = 0.0;
+                std.debug.print("PREVENTING FRICTION OVERSHOOT: B x-vel {d:.6} → 0.0 (was going to {d:.6})\n", .{ b_vel_before.x, b.velocity.x });
+            } else if (b_vel_before.x < 0 and b.velocity.x > 0) {
+                b.velocity.x = 0.0;
+                std.debug.print("PREVENTING FRICTION OVERSHOOT: B x-vel {d:.6} → 0.0 (was going to {d:.6})\n", .{ b_vel_before.x, b.velocity.x });
+            }
         }
 
-        // Check if friction caused significant vertical velocity changes (could indicate instability)
-        if (a.body_type == .dynamic and b.body_type == .dynamic) {
-            // Check if signs flipped (negative to positive or vice versa) - indicates unstable friction
-            const a_y_sign_changed = (a_vel_before.y < 0 and a.velocity.y > 0) or (a_vel_before.y > 0 and a.velocity.y < 0);
-            const b_y_sign_changed = (b_vel_before.y < 0 and b.velocity.y > 0) or (b_vel_before.y > 0 and b.velocity.y < 0);
+        // IMPROVEMENT: Increment the low velocity frames counter for very slow objects
+        if (a.body_type == .dynamic and @abs(a.velocity.x) < velocity_threshold * 2.0) {
+            a.low_velocity_frames += 1;
+        }
 
-            if (a_y_sign_changed or b_y_sign_changed) {
-                std.debug.print("🚨 UNSTABLE FRICTION DETECTED: Vertical velocity direction changed!\n", .{});
-                std.debug.print("  A: y-vel {d:.6} → {d:.6}\n", .{ a_vel_before.y, a.velocity.y });
-                std.debug.print("  B: y-vel {d:.6} → {d:.6}\n", .{ b_vel_before.y, b.velocity.y });
-            }
+        if (b.body_type == .dynamic and @abs(b.velocity.x) < velocity_threshold * 2.0) {
+            b.low_velocity_frames += 1;
         }
     }
 

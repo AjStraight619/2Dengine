@@ -10,6 +10,9 @@ pub const Rectangle = @import("shapes/shape.zig").Rectangle;
 pub const Forces = @import("dynamics/forces.zig").Forces;
 pub const Integrator = @import("dynamics/integration.zig").Integrator;
 
+// Logger for physics debug messages
+pub const logger = @import("logger.zig");
+
 // Submodules
 pub const body = struct {
     pub const options = @import("body/options.zig");
@@ -29,6 +32,9 @@ pub const dynamics = struct {
     pub const Forces = @import("dynamics/forces.zig").Forces;
     pub const Integrator = @import("dynamics/integration.zig").Integrator;
 };
+
+// New stability module for simulation safeguards and sleep management
+pub const stability = @import("stability/mod.zig");
 
 // Factory option structures - re-exported for convenience
 pub const StaticCircleOptions = @import("body/options.zig").StaticCircleOptions;
