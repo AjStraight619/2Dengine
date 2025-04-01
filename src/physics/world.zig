@@ -7,6 +7,10 @@ const collision = @import("collision/mod.zig");
 const factory = @import("body/factory.zig");
 const options = @import("body/options.zig");
 const Integrator = @import("dynamics/integration.zig").Integrator;
+const ShapeProperties = @import("shapes/properties.zig").ShapeProperties;
+const stability = @import("stability/mod.zig");
+const BodyCreator = @import("body/body.zig").BodyCreator;
+const logger = @import("logger.zig");
 
 pub const PhysicsWorld = struct {
     allocator: std.mem.Allocator,
@@ -32,8 +36,11 @@ pub const PhysicsWorld = struct {
     velocity_iterations: usize = 4,
     position_iterations: usize = 3,
 
-    // New member for force diagnostics
+    // Force diagnostics flag
     force_diagnostics: bool = false,
+
+    // For generating unique body IDs
+    next_body_id: u64 = 1,
 
     pub fn init(allocator: std.mem.Allocator) PhysicsWorld {
         return PhysicsWorld{
@@ -45,6 +52,7 @@ pub const PhysicsWorld = struct {
             .contact_points = std.ArrayList(Vector2).init(allocator),
             .velocity_iterations = 4,
             .position_iterations = 3,
+            .next_body_id = 1,
         };
     }
 
@@ -60,31 +68,38 @@ pub const PhysicsWorld = struct {
         self.contact_points.deinit();
     }
 
-    // Factory access points for different body types
-    pub fn static(self: *PhysicsWorld) factory.StaticBodyFactory {
-        return factory.StaticBodyFactory{ .world = self };
+    // Logging configuration methods
+
+    /// Configure the physics logger
+    pub fn configureLogging(self: *PhysicsWorld, enabled: bool, min_level: logger.LogLevel) void {
+        _ = self; // Unused
+        logger.global.setEnabled(enabled);
+        logger.global.setMinLevel(min_level);
     }
 
-    pub fn dynamic(self: *PhysicsWorld) factory.DynamicBodyFactory {
-        return factory.DynamicBodyFactory{ .world = self };
+    /// Enable or disable a specific logging category
+    pub fn setLogCategory(self: *PhysicsWorld, category: logger.LogCategory, enabled: bool) void {
+        _ = self; // Unused
+        logger.global.setCategoryEnabled(category, enabled);
     }
 
-    pub fn kinematic(self: *PhysicsWorld) factory.KinematicBodyFactory {
-        return factory.KinematicBodyFactory{ .world = self };
+    /// Enable or disable all performance logging
+    pub fn setPerformanceLogging(self: *PhysicsWorld, enabled: bool) void {
+        _ = self; // Unused
+        logger.global.setCategoryEnabled(.performance, enabled);
     }
 
-    // Internal method to create a body with the specified type
+    /// Enable or disable all collision logging
+    pub fn setCollisionLogging(self: *PhysicsWorld, enabled: bool) void {
+        self.collision_logging = enabled;
+        logger.global.setCategoryEnabled(.collision, enabled);
+    }
+
+    // Simplified body creation methods that use the BodyCreator
+
+    /// Create a body with the specified type (internal method)
     pub fn createBodyWithType(self: *PhysicsWorld, body_type: BodyType, shape: Shape, position: Vector2) !*RigidBody {
-        const body = try self.allocator.create(RigidBody);
-        const mass: f32 = switch (body_type) {
-            .static => std.math.floatMax(f32),
-            .dynamic => 1.0, // Default mass for dynamic bodies
-            .kinematic => 0.0, // Kinematic bodies don't respond to forces
-        };
-
-        body.* = RigidBody.init(body_type, position, shape, mass);
-        try self.bodies.append(body);
-        return body;
+        return BodyCreator.createBodyWithType(self.allocator, body_type, shape, position, &self.next_body_id, &self.bodies);
     }
 
     // Add a pre-existing body to the world
@@ -127,7 +142,7 @@ pub const PhysicsWorld = struct {
         phase_time = @as(i64, @intCast(integration_end - integration_start));
 
         if (phase_time > 5_000_000 or self.force_diagnostics) { // 5ms
-            std.debug.print("⏱️ INTEGRATION: {d:.2}ms\n", .{@as(f64, @floatFromInt(phase_time)) / 1_000_000.0});
+            logger.logPerformance("INTEGRATION", phase_time, .{});
         }
 
         // Sanitize all bodies to prevent numerical instability
@@ -142,7 +157,7 @@ pub const PhysicsWorld = struct {
         phase_time = @as(i64, @intCast(sanitize_end - sanitize_start));
 
         if (phase_time > 5_000_000 or self.force_diagnostics) { // 5ms
-            std.debug.print("⏱️ SANITIZE: {d:.2}ms for {d} bodies\n", .{ @as(f64, @floatFromInt(phase_time)) / 1_000_000.0, self.bodies.items.len });
+            logger.logPerformance("SANITIZE", phase_time, .{ .bodies_count = self.bodies.items.len });
         }
 
         // 2. Detect and resolve collisions with multiple iterations for stability
@@ -155,12 +170,12 @@ pub const PhysicsWorld = struct {
             collision_time += phase_time;
 
             if ((phase_time > 10_000_000 or self.force_diagnostics) and iteration == 0) { // 10ms for a single iteration, only log first iteration when forced
-                std.debug.print("⏱️ COLLISION ITERATION {d}: {d:.2}ms with {d} collisions\n", .{ iteration, @as(f64, @floatFromInt(phase_time)) / 1_000_000.0, self.collision_count });
+                logger.logPerformance("COLLISION ITERATION", phase_time, .{ .iteration = iteration, .collisions = self.collision_count });
             }
         }
 
         if (collision_time > 15_000_000 or self.force_diagnostics) { // 15ms total for all iterations
-            std.debug.print("⏱️ COLLISION TOTAL: {d:.2}ms for {d} iterations with {d} collisions\n", .{ @as(f64, @floatFromInt(collision_time)) / 1_000_000.0, self.position_iterations, self.collision_count });
+            logger.logPerformance("COLLISION TOTAL", collision_time, .{ .iterations = self.position_iterations, .collisions = self.collision_count });
         }
 
         // 3. Update rigid body AABBs
@@ -172,7 +187,7 @@ pub const PhysicsWorld = struct {
         phase_time = @as(i64, @intCast(aabb_end - aabb_start));
 
         if (phase_time > 5_000_000 or self.force_diagnostics) { // 5ms
-            std.debug.print("⏱️ AABB UPDATE: {d:.2}ms for {d} bodies\n", .{ @as(f64, @floatFromInt(phase_time)) / 1_000_000.0, self.bodies.items.len });
+            logger.logPerformance("AABB UPDATE", phase_time, .{ .bodies_count = self.bodies.items.len });
         }
 
         // 4. Reset forces for next frame
@@ -187,20 +202,23 @@ pub const PhysicsWorld = struct {
         phase_time = @as(i64, @intCast(reset_end - reset_start));
 
         if (phase_time > 1_000_000 or self.force_diagnostics) { // 1ms (this should be very fast)
-            std.debug.print("⏱️ FORCE RESET: {d:.2}ms for {d} bodies\n", .{ @as(f64, @floatFromInt(phase_time)) / 1_000_000.0, self.bodies.items.len });
+            logger.logPerformance("FORCE RESET", phase_time, .{ .bodies_count = self.bodies.items.len });
         }
+
+        // 5. NEW: Force collective sleep for chains of low-velocity objects
+        self.forceCollectiveSleep();
 
         // Total physics update time
         const update_end = std.time.nanoTimestamp();
         const total_time = @as(i64, @intCast(update_end - update_start));
 
         if (total_time > 15_000_000 or self.force_diagnostics) { // 15ms
-            std.debug.print("⏱️ PHYSICS UPDATE TOTAL: {d:.2}ms\n", .{@as(f64, @floatFromInt(total_time)) / 1_000_000.0});
+            logger.logPerformance("PHYSICS UPDATE TOTAL", total_time, .{});
         }
 
         // Log collision count if it's large or diagnostics are forced
         if (self.collision_count > 50 or self.force_diagnostics) {
-            std.debug.print("📊 COLLISION COUNT: {d} collisions this frame\n", .{self.collision_count});
+            logger.info(.collision, "COLLISION COUNT: {d} collisions this frame", .{self.collision_count});
         }
 
         // Reset force_diagnostics flag after this frame
@@ -210,7 +228,6 @@ pub const PhysicsWorld = struct {
     /// Apply physics integration to update positions based on forces
     fn integrateForces(self: *PhysicsWorld, dt: f32) void {
         // Use the specified integrator for simulation
-
         for (self.bodies.items) |body| {
             // Using semi-implicit Euler for better stability
             Integrator.semiImplicitEuler(body, dt, self.gravity);
@@ -226,7 +243,7 @@ pub const PhysicsWorld = struct {
         const broadphase_time = @as(i64, @intCast(broadphase_end - broadphase_start));
 
         if (broadphase_time > 5_000_000 or self.force_diagnostics) { // 5ms
-            std.debug.print("⏱️ BROADPHASE: {d:.2}ms for {d} bodies, found {d} potential pairs\n", .{ @as(f64, @floatFromInt(broadphase_time)) / 1_000_000.0, self.bodies.items.len, potential_pairs.items.len });
+            logger.logPerformance("BROADPHASE", broadphase_time, .{ .bodies_count = self.bodies.items.len, .pairs_count = potential_pairs.items.len });
         }
 
         defer potential_pairs.deinit();
@@ -243,7 +260,7 @@ pub const PhysicsWorld = struct {
             const detection_time = @as(i64, @intCast(detection_end - detection_start));
 
             if (detection_time > 1_000_000 or self.force_diagnostics) { // 1ms
-                std.debug.print("⏱️ DETECTION: {d:.2}ms between bodies at ({d:.1},{d:.1}) and ({d:.1},{d:.1})\n", .{ @as(f64, @floatFromInt(detection_time)) / 1_000_000.0, pair.a.position.x, pair.a.position.y, pair.b.position.x, pair.b.position.y });
+                logger.logPerformance("DETECTION", detection_time, .{ .body_a = .{ .pos = pair.a.position }, .body_b = .{ .pos = pair.b.position } });
             }
 
             if (collision_result) |collision_info| {
@@ -261,8 +278,9 @@ pub const PhysicsWorld = struct {
 
                 // Log collision if enabled
                 if (self.collision_logging) {
-                    // Log only critical collisions or disable by default to improve performance
-                    // std.debug.print("Collision detected: depth={d}, normal=({d},{d}), body_a_pos=({d},{d}), body_b_pos=({d},{d})\n", .{ collision_info.depth, collision_info.normal.x, collision_info.normal.y, pair.a.position.x, pair.a.position.y, pair.b.position.x, pair.b.position.y });
+                    // We can add detailed logging here if needed
+                    //logger.debug(.collision, "Collision detected: depth={d}, normal=({d},{d})",
+                    //    .{ collision_info.depth, collision_info.normal.x, collision_info.normal.y });
                 }
 
                 // Increment collision counter for statistics
@@ -280,7 +298,7 @@ pub const PhysicsWorld = struct {
                 }
 
                 if (resolution_time > 5_000_000 or self.force_diagnostics) { // 5ms
-                    std.debug.print("⏱️ RESOLUTION: {d:.2}ms for collision between bodies at ({d:.1},{d:.1}) and ({d:.1},{d:.1})\n", .{ @as(f64, @floatFromInt(resolution_time)) / 1_000_000.0, pair.a.position.x, pair.a.position.y, pair.b.position.x, pair.b.position.y });
+                    logger.logPerformance("RESOLUTION", resolution_time, .{ .body_a = .{ .pos = pair.a.position }, .body_b = .{ .pos = pair.b.position } });
                 }
 
                 pairs_resolved += 1;
@@ -289,7 +307,7 @@ pub const PhysicsWorld = struct {
 
         // Log if overall collision resolution was slow
         if (total_resolution_time > 10_000_000 or self.force_diagnostics) { // 10ms
-            std.debug.print("⏱️ COLLISION RESOLUTION TOTAL: {d:.2}ms for {d}/{d} pairs\n", .{ @as(f64, @floatFromInt(total_resolution_time)) / 1_000_000.0, pairs_resolved, potential_pairs.items.len });
+            logger.logPerformance("COLLISION RESOLUTION TOTAL", total_resolution_time, .{ .pairs_resolved = pairs_resolved, .total_pairs = potential_pairs.items.len });
         }
     }
 
@@ -303,20 +321,6 @@ pub const PhysicsWorld = struct {
         self.debug_draw_contacts = enabled;
     }
 
-    /// Enable collision logging to console
-    pub fn setCollisionLogging(self: *PhysicsWorld, enabled: bool) void {
-        self.collision_logging = enabled;
-        // If we're turning off collision logging, also turn off broadphase logging
-        if (!enabled) {
-            // TODO: Add a flag in broadphase to disable excessive logging
-        }
-    }
-
-    /// Get the number of collisions from the last frame
-    pub fn getCollisionCount(self: PhysicsWorld) usize {
-        return self.collision_count;
-    }
-
     // New method to configure the broadphase
     pub fn configureBroadphase(self: *PhysicsWorld, cell_size: f32) void {
         self.broadphase.setCellSize(cell_size);
@@ -324,9 +328,120 @@ pub const PhysicsWorld = struct {
 
     /// Force complete performance diagnostics for the next frame
     pub fn forceDiagnostics(self: *PhysicsWorld) void {
-        std.debug.print("\n--- FORCING DETAILED PHYSICS DIAGNOSTICS ---\n", .{});
+        logger.info(.general, "FORCING DETAILED PHYSICS DIAGNOSTICS", .{});
         // Set temporary override flags that will cause all performance metrics to be logged
         // These will be reset after one frame
         self.force_diagnostics = true;
+    }
+
+    // User-friendly body API methods
+
+    /// Get a body by its unique ID
+    pub fn getBodyById(self: *PhysicsWorld, id: u64) ?*RigidBody {
+        for (self.bodies.items) |body| {
+            if (body.id == id) {
+                return body;
+            }
+        }
+        return null;
+    }
+
+    /// Remove a body by its unique ID
+    pub fn removeBodyById(self: *PhysicsWorld, id: u64) bool {
+        for (self.bodies.items, 0..) |body, i| {
+            if (body.id == id) {
+                _ = self.bodies.orderedRemove(i);
+                self.allocator.destroy(body);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Remove all bodies of a specific type (e.g., all dynamic bodies)
+    pub fn removeAllBodiesOfType(self: *PhysicsWorld, body_type: BodyType) usize {
+        var count: usize = 0;
+        var i: usize = 0;
+        while (i < self.bodies.items.len) {
+            const body = self.bodies.items[i];
+            if (body.body_type == body_type) {
+                _ = self.bodies.orderedRemove(i);
+                self.allocator.destroy(body);
+                count += 1;
+            } else {
+                i += 1;
+            }
+        }
+        return count;
+    }
+
+    /// Apply a force to a body specified by ID
+    pub fn applyForceToBody(self: *PhysicsWorld, id: u64, force: Vector2) bool {
+        if (self.getBodyById(id)) |body| {
+            body.applyForce(force);
+            return true;
+        }
+        return false;
+    }
+
+    /// Apply torque to a body specified by ID
+    pub fn applyTorqueToBody(self: *PhysicsWorld, id: u64, torque: f32) bool {
+        if (self.getBodyById(id)) |body| {
+            body.applyTorque(torque);
+            return true;
+        }
+        return false;
+    }
+
+    /// Apply impulse to a body specified by ID
+    pub fn applyImpulseToBody(self: *PhysicsWorld, id: u64, impulse: Vector2, contact_point: ?Vector2) bool {
+        if (self.getBodyById(id)) |body| {
+            body.applyImpulse(impulse, contact_point);
+            return true;
+        }
+        return false;
+    }
+
+    /// Add a circle body with properties - wrapper around BodyCreator.createCircle
+    pub fn addCircle(self: *PhysicsWorld, properties: struct {
+        type: BodyType,
+        position: Vector2,
+        radius: f32,
+        mass: ?f32 = null,
+        restitution: ?f32 = null,
+        friction: ?f32 = null,
+        velocity: ?Vector2 = null,
+        angular_velocity: ?f32 = null,
+        rotation: ?f32 = null,
+        initial_force: ?Vector2 = null,
+    }) !*RigidBody {
+        return BodyCreator.createCircleFromWorld(self.allocator, properties, &self.next_body_id, &self.bodies);
+    }
+
+    /// Add a rectangle body with properties - wrapper around BodyCreator.createRectangle
+    /// Note: This method now accepts angle in degrees for better usability
+    pub fn addRectangle(
+        self: *PhysicsWorld,
+        properties: struct {
+            type: BodyType,
+            position: Vector2,
+            width: f32,
+            height: f32,
+            angle_degrees: ?f32 = null, // Using angle_degrees consistently
+            mass: ?f32 = null,
+            restitution: ?f32 = null,
+            friction: ?f32 = null,
+            velocity: ?Vector2 = null,
+            angular_velocity: ?f32 = null,
+            rotation: ?f32 = null,
+        },
+    ) !*RigidBody {
+        return BodyCreator.createRectangleFromWorld(self.allocator, properties, &self.next_body_id, &self.bodies);
+    }
+
+    /// Force sleep for nearly-at-rest objects to prevent perpetual wake-up chain reactions
+    pub fn forceCollectiveSleep(self: *PhysicsWorld) void {
+        // Delegate to the stability module's implementation
+        stability.forceCollectiveSleep(self);
     }
 };
