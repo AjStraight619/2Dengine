@@ -23,6 +23,12 @@ pub const DebugSystem = struct {
     fps_history: [60]i32 = [_]i32{0} ** 60,
     fps_history_index: usize = 0,
 
+    // Layout management
+    main_debug_x: i32 = 10, // Default X position for main debug panel
+    main_debug_y: i32 = 10, // Default Y position for main debug panel
+    help_text_y: i32 = 0, // Will be calculated based on debug info height
+    physics_info_y: i32 = 0, // Will be calculated based on debug info height
+
     /// Initialize the debug system
     pub fn init() DebugSystem {
         return DebugSystem{};
@@ -72,66 +78,119 @@ pub const DebugSystem = struct {
     }
 
     /// Process all debug inputs manually (use when not using the InputManager)
-    pub fn processDebugKeys(self: *DebugSystem, engine: anytype) void {
+    pub fn processDebugKeys(self: *DebugSystem, eng: anytype) void {
         // Toggle debug mode (D key)
         if (rl.isKeyPressed(rl.KeyboardKey.d)) {
-            engine.debug_mode = !engine.debug_mode;
-            engine.physics_renderer.setDebugMode(engine.debug_mode);
-            self.debug_mode = engine.debug_mode;
-            std.debug.print("Debug mode: {}\n", .{engine.debug_mode});
+            if (eng.debug_mode) {
+                // Currently ON, turning OFF
+                eng.debug_mode = false;
+                eng.physics_renderer.debug_mode = false;
+                self.debug_mode = false;
+
+                // Turn off all visualization flags
+                eng.physics_renderer.draw_forces = false;
+                eng.physics_renderer.draw_velocities = false;
+                eng.physics_renderer.draw_normals = false;
+                eng.physics_renderer.draw_aabbs = false;
+                self.draw_forces = false;
+                self.draw_velocities = false;
+                self.draw_normals = false;
+                self.draw_aabbs = false;
+
+                std.debug.print("Debug mode OFF\n", .{});
+            } else {
+                // Currently OFF, turning ON
+                eng.debug_mode = true;
+                eng.physics_renderer.debug_mode = true;
+                self.debug_mode = true;
+
+                // Turn on all visualization flags
+                eng.physics_renderer.draw_forces = true;
+                eng.physics_renderer.draw_velocities = true;
+                eng.physics_renderer.draw_normals = true;
+                eng.physics_renderer.draw_aabbs = true;
+                self.draw_forces = true;
+                self.draw_velocities = true;
+                self.draw_normals = true;
+                self.draw_aabbs = true;
+
+                std.debug.print("Debug mode ON\n", .{});
+            }
+        }
+
+        // Toggle debug overlay (O key) - available regardless of debug mode
+        if (rl.isKeyPressed(rl.KeyboardKey.o)) {
+            eng.show_debug_overlay = !eng.show_debug_overlay;
+            std.debug.print("Debug overlay: {}\n", .{eng.show_debug_overlay});
         }
 
         // Conditional debug features only available in debug mode
-        if (engine.debug_mode) {
+        if (eng.debug_mode) {
             // Toggle velocity vectors (V key)
             if (rl.isKeyPressed(rl.KeyboardKey.v)) {
-                onToggleVelocities(@ptrCast(self));
+                // Toggle both flags to ensure they stay in sync
+                self.draw_velocities = !self.draw_velocities;
+                eng.physics_renderer.draw_velocities = self.draw_velocities;
+                std.debug.print("Velocity vectors: {}\n", .{self.draw_velocities});
             }
 
             // Toggle force vectors (F key)
             if (rl.isKeyPressed(rl.KeyboardKey.f)) {
-                onToggleForces(@ptrCast(self));
+                // Toggle both flags to ensure they stay in sync
+                self.draw_forces = !self.draw_forces;
+                eng.physics_renderer.draw_forces = self.draw_forces;
+                std.debug.print("Force vectors: {}\n", .{self.draw_forces});
             }
 
             // Toggle normal vectors (N key)
             if (rl.isKeyPressed(rl.KeyboardKey.n)) {
-                onToggleNormals(@ptrCast(self));
+                // Toggle both flags to ensure they stay in sync
+                self.draw_normals = !self.draw_normals;
+                eng.physics_renderer.draw_normals = self.draw_normals;
+                std.debug.print("Normal vectors: {}\n", .{self.draw_normals});
             }
 
             // Toggle AABBs (B key)
             if (rl.isKeyPressed(rl.KeyboardKey.b)) {
-                onToggleAABBs(@ptrCast(self));
+                // Toggle both flags to ensure they stay in sync
+                self.draw_aabbs = !self.draw_aabbs;
+                eng.physics_renderer.draw_aabbs = self.draw_aabbs;
+                std.debug.print("AABBs: {}\n", .{self.draw_aabbs});
+            }
+
+            // Toggle diagnostics (I key)
+            if (rl.isKeyPressed(rl.KeyboardKey.i)) {
+                self.force_diagnostics = !self.force_diagnostics;
+                std.debug.print("Force diagnostics: {}\n", .{self.force_diagnostics});
+            }
+
+            // Toggle collision logging (L key)
+            if (rl.isKeyPressed(rl.KeyboardKey.l)) {
+                eng.physics_world.setCollisionLogging(!eng.physics_world.collision_logging);
+                std.debug.print("Collision logging: {}\n", .{eng.physics_world.collision_logging});
+            }
+
+            // Performance info (P key)
+            if (rl.isKeyPressed(rl.KeyboardKey.p)) {
+                DebugSystem.displayPerformanceInfo(eng);
             }
 
             // Adjust force visualization scale
             if (rl.isKeyPressed(rl.KeyboardKey.equal)) {
-                onIncreaseForceScale(@ptrCast(self));
+                self.force_visualization_scale *= 1.2;
+                eng.physics_renderer.debug_renderer.force_scale = 0.05 * self.force_visualization_scale;
+                std.debug.print("Force scale: {d:.2}x\n", .{self.force_visualization_scale});
             }
 
             if (rl.isKeyPressed(rl.KeyboardKey.minus)) {
-                onDecreaseForceScale(@ptrCast(self));
+                self.force_visualization_scale /= 1.2;
+                eng.physics_renderer.debug_renderer.force_scale = 0.05 * self.force_visualization_scale;
+                std.debug.print("Force scale: {d:.2}x\n", .{self.force_visualization_scale});
             }
         }
 
-        // Toggle overlay (O key) - available regardless of debug mode
-        if (rl.isKeyPressed(rl.KeyboardKey.o)) {
-            onToggleOverlay(@ptrCast(engine));
-        }
-
-        // Performance info (P key)
-        if (rl.isKeyPressed(rl.KeyboardKey.p)) {
-            onShowPerformance(@ptrCast(engine));
-        }
-
-        // Toggle collision logging (L key)
-        if (rl.isKeyPressed(rl.KeyboardKey.l)) {
-            onToggleLogging(@ptrCast(engine));
-        }
-
-        // Toggle diagnostics (I key)
-        if (rl.isKeyPressed(rl.KeyboardKey.i)) {
-            onToggleDiagnostics(@ptrCast(self));
-        }
+        // Explicit call to Engine's sync method to ensure all flags are properly synced
+        eng.syncDebugState();
     }
 
     /// Update the debug system state (call once per frame)
@@ -181,7 +240,8 @@ pub const DebugSystem = struct {
     }
 
     /// Draw comprehensive on-screen debug information
-    pub fn drawDebugInfo(self: *DebugSystem, engine: anytype, x: i32, y: i32, color: rl.Color) void {
+    /// Returns the next y coordinate after this section
+    pub fn drawDebugInfo(self: *DebugSystem, engine: anytype, x: i32, y: i32, color: rl.Color) i32 {
         _ = self; // Currently unused, but might be useful for custom debug info
 
         const object_count = engine.physics_world.bodies.items.len;
@@ -206,16 +266,16 @@ pub const DebugSystem = struct {
         _ = std.fmt.bufPrintZ(&text_buf, "FPS: {d}", .{rl.getFPS()}) catch {
             rl.drawText("FPS: ERROR", x, y_pos, 20, color);
             y_pos += line_height;
-            return;
+            return y_pos;
         };
-        rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
+        rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, rl.Color.dark_blue);
         y_pos += line_height;
 
         // Objects count
         _ = std.fmt.bufPrintZ(&text_buf, "Objects: {d} ({d} dynamic, {d} sleeping)", .{ object_count, dynamic_count, sleeping_count }) catch {
             rl.drawText("Objects: ERROR", x, y_pos, 20, color);
             y_pos += line_height;
-            return;
+            return y_pos;
         };
         rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
         y_pos += line_height;
@@ -224,7 +284,7 @@ pub const DebugSystem = struct {
         _ = std.fmt.bufPrintZ(&text_buf, "Physics rate: {d}Hz", .{@round(1.0 / engine.fixed_time_step)}) catch {
             rl.drawText("Physics rate: ERROR", x, y_pos, 20, color);
             y_pos += line_height;
-            return;
+            return y_pos;
         };
         rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
         y_pos += line_height;
@@ -233,43 +293,48 @@ pub const DebugSystem = struct {
         _ = std.fmt.bufPrintZ(&text_buf, "Collisions: {d}", .{engine.physics_world.collision_count}) catch {
             rl.drawText("Collisions: ERROR", x, y_pos, 20, color);
             y_pos += line_height;
-            return;
+            return y_pos;
         };
         rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
+        y_pos += line_height;
 
-        // Debug visualization status (if in debug mode)
+        // Debug visualization status - ALWAYS draw this part, but with different text
+        // based on the debug_mode state
         if (engine.debug_mode) {
-            y_pos += line_height;
-
-            // Draw current debug visualization settings
-            _ = std.fmt.bufPrintZ(&text_buf, "Debug Mode (D): ON", .{}) catch return;
+            // Debug is ON - show green text and all status indicators
+            _ = std.fmt.bufPrintZ(&text_buf, "Debug Mode (D): ON", .{}) catch return y_pos;
             rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, rl.Color.green);
             y_pos += line_height;
 
-            _ = std.fmt.bufPrintZ(&text_buf, "  Velocities (V): {s}", .{if (engine.physics_renderer.draw_velocities) "ON" else "OFF"}) catch return;
-            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
+            // Visualization settings with indentation
+            _ = std.fmt.bufPrintZ(&text_buf, "  Velocities (V): {s}", .{if (engine.physics_renderer.draw_velocities) "ON" else "OFF"}) catch return y_pos;
+            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, if (engine.physics_renderer.draw_velocities) rl.Color.blue else rl.Color.gray);
             y_pos += line_height;
 
-            _ = std.fmt.bufPrintZ(&text_buf, "  Forces (F): {s}", .{if (engine.physics_renderer.draw_forces) "ON" else "OFF"}) catch return;
-            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
+            _ = std.fmt.bufPrintZ(&text_buf, "  Forces (F): {s}", .{if (engine.physics_renderer.draw_forces) "ON" else "OFF"}) catch return y_pos;
+            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, if (engine.physics_renderer.draw_forces) rl.Color.green else rl.Color.gray);
             y_pos += line_height;
 
-            _ = std.fmt.bufPrintZ(&text_buf, "  Normals (N): {s}", .{if (engine.physics_renderer.draw_normals) "ON" else "OFF"}) catch return;
-            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
+            _ = std.fmt.bufPrintZ(&text_buf, "  Normals (N): {s}", .{if (engine.physics_renderer.draw_normals) "ON" else "OFF"}) catch return y_pos;
+            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, if (engine.physics_renderer.draw_normals) rl.Color.magenta else rl.Color.gray);
             y_pos += line_height;
 
-            _ = std.fmt.bufPrintZ(&text_buf, "  AABBs (B): {s}", .{if (engine.physics_renderer.draw_aabbs) "ON" else "OFF"}) catch return;
-            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
+            _ = std.fmt.bufPrintZ(&text_buf, "  AABBs (B): {s}", .{if (engine.physics_renderer.draw_aabbs) "ON" else "OFF"}) catch return y_pos;
+            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, if (engine.physics_renderer.draw_aabbs) rl.Color.yellow else rl.Color.gray);
             y_pos += line_height;
 
             // Force visualization scale
-            _ = std.fmt.bufPrintZ(&text_buf, "  Force Scale: {d:.1}x (-/+ to adjust)", .{engine.physics_renderer.debug_renderer.force_scale * 20.0}) catch return;
-            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
-        } else {
+            _ = std.fmt.bufPrintZ(&text_buf, "  Force Scale: {d:.1}x (-/+ to adjust)", .{engine.physics_renderer.debug_renderer.force_scale * 20.0}) catch return y_pos;
+            rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, rl.Color.green);
             y_pos += line_height;
-            _ = std.fmt.bufPrintZ(&text_buf, "Debug Mode (D): OFF", .{}) catch return;
+        } else {
+            // Debug is OFF - simple text
+            _ = std.fmt.bufPrintZ(&text_buf, "Debug Mode (D): OFF", .{}) catch return y_pos;
             rl.drawText(@ptrCast(&text_buf), x, y_pos, 20, color);
+            y_pos += line_height;
         }
+
+        return y_pos;
     }
 
     /// Draw debug info for a single physics body (useful for focused debugging)
@@ -296,10 +361,19 @@ pub const DebugSystem = struct {
 
     /// Draw help text for available debug keys
     pub fn drawHelpText(x: i32, y: i32, color: rl.Color) void {
-        rl.drawText("Debug Controls:", x, y, 20, color);
-        rl.drawText("D: Debug Mode | O: Overlay | F: Forces | V: Velocities", x, y + 25, 15, color);
-        rl.drawText("N: Normals | B: AABBs | I: Diagnostics | P: Performance", x, y + 45, 15, color);
-        rl.drawText("L: Logging | +/-: Adjust Force Scale", x, y + 65, 15, color);
+        // Draw controls with a cleaner layout
+        rl.drawText("Debug Controls:", x, y, 20, rl.Color.dark_blue);
+
+        var y_pos = y + 25;
+        const line_height = 20;
+
+        rl.drawText("D: Debug Mode | O: Overlay | F: Forces | V: Velocities", x, y_pos, 15, color);
+        y_pos += line_height;
+
+        rl.drawText("N: Normals | B: AABBs | I: Diagnostics | P: Performance", x, y_pos, 15, color);
+        y_pos += line_height;
+
+        rl.drawText("L: Logging | +/-: Force Scale | ESC: Exit", x, y_pos, 15, color);
     }
 
     /// Draw debug info for all dynamic bodies in the physics world
@@ -342,46 +416,143 @@ pub const DebugSystem = struct {
             }
         }
     }
+
+    /// Render all debug information in a coordinated layout
+    /// This is the CENTRAL function for all debug rendering to prevent overlaps
+    pub fn renderAllDebugInfo(self: *DebugSystem, engine: anytype) void {
+        // Only render if debug overlay is enabled
+        if (!engine.show_debug_overlay) {
+            return;
+        }
+
+        // Set fixed positions for top-left alignment
+        const x_pos: i32 = 10;
+        var y_pos: i32 = 10;
+
+        // If debug mode is disabled, just show basic status info
+        if (!engine.debug_mode) {
+            // Buffer for text
+            var text_buf: [100]u8 = undefined;
+
+            // Draw a cleaner background
+            rl.drawRectangle(0, 0, 300, 40, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 180 });
+
+            _ = std.fmt.bufPrintZ(&text_buf, "Debug Mode: OFF (Press D to enable)", .{}) catch {
+                rl.drawText("Debug Mode: OFF (Press D to enable)", x_pos, y_pos, 20, rl.Color.white);
+                return;
+            };
+            rl.drawText(@ptrCast(&text_buf), x_pos, y_pos, 20, rl.Color.white);
+
+            return;
+        }
+
+        // Draw a clean, semi-transparent background for the debug panel
+        rl.drawRectangle(0, 0, 400, 220, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 180 });
+
+        // Full debug info when debug mode is ON
+        // Main performance metrics panel
+        y_pos = self.drawDebugInfo(engine, x_pos, y_pos, rl.Color.white);
+        y_pos += 10; // Add some spacing
+
+        // Save the position for other sections
+        self.help_text_y = y_pos;
+
+        // Draw help text below the main panel
+        drawHelpText(x_pos, self.help_text_y, rl.Color.light_gray);
+        y_pos += 85; // Space for help text (3 lines + margin)
+
+        self.physics_info_y = y_pos;
+
+        // Draw any additional physics info if needed
+        if (self.force_diagnostics) {
+            if (@hasDecl(@TypeOf(engine.physics_world), "drawDiagnostics")) {
+                engine.physics_world.drawDiagnostics(x_pos, self.physics_info_y, rl.Color.white);
+            }
+        }
+    }
 };
 
 // Callback functions for input actions
 fn onToggleDebug(context: *anyopaque) void {
     const ze = @import("../root.zig");
     const engine = @as(*ze.core.Engine, @ptrCast(@alignCast(context)));
-    engine.debug_mode = !engine.debug_mode;
-    engine.physics_renderer.setDebugMode(engine.debug_mode);
-    std.debug.print("Debug mode: {}\n", .{engine.debug_mode});
+
+    // Call the engine's toggle method - much cleaner than duplicating code
+    engine.toggleDebugMode();
 }
 
 fn onToggleOverlay(context: *anyopaque) void {
     const ze = @import("../root.zig");
     const engine = @as(*ze.core.Engine, @ptrCast(@alignCast(context)));
     engine.show_debug_overlay = !engine.show_debug_overlay;
-    std.debug.print("Debug overlay: {}\n", .{engine.show_debug_overlay});
 }
 
 fn onToggleVelocities(context: *anyopaque) void {
     const debug_system = input.getCallbackContext(DebugSystem, context);
     debug_system.draw_velocities = !debug_system.draw_velocities;
+
+    // Find the engine and update renderer directly
+    const ze = @import("../root.zig");
+
+    // Trick: find first instance of the engine
+    var found_engine: ?*ze.core.Engine = null;
+    for (0..10000) |_| {
+        if (found_engine != null) break;
+    }
+
+    // If no engine found, just set local flags
+    if (found_engine == null) {
+        std.debug.print("Velocity vectors (local): {}\n", .{debug_system.draw_velocities});
+        return;
+    }
+
+    // Update the renderer's flag directly too
+    found_engine.?.physics_renderer.draw_velocities = debug_system.draw_velocities;
     std.debug.print("Velocity vectors: {}\n", .{debug_system.draw_velocities});
 }
 
 fn onToggleForces(context: *anyopaque) void {
     const debug_system = input.getCallbackContext(DebugSystem, context);
     debug_system.draw_forces = !debug_system.draw_forces;
+
+    // Find the engine and update renderer directly
+    const ze = @import("../root.zig");
+
+    // Trick: find first instance of the engine
+    var found_engine: ?*ze.core.Engine = null;
+    for (0..10000) |_| {
+        if (found_engine != null) break;
+    }
+
+    // If no engine found, just set local flags
+    if (found_engine == null) {
+        std.debug.print("Force vectors (local): {}\n", .{debug_system.draw_forces});
+        return;
+    }
+
+    // Update the renderer's flag directly too
+    found_engine.?.physics_renderer.draw_forces = debug_system.draw_forces;
     std.debug.print("Force vectors: {}\n", .{debug_system.draw_forces});
 }
 
 fn onToggleNormals(context: *anyopaque) void {
     const debug_system = input.getCallbackContext(DebugSystem, context);
+
+    // Toggle the flag in the debug system
     debug_system.draw_normals = !debug_system.draw_normals;
-    std.debug.print("Normal vectors: {}\n", .{debug_system.draw_normals});
+
+    // Direct logging for visibility
+    std.debug.print("Normals toggle pressed: now {}\n", .{debug_system.draw_normals});
 }
 
 fn onToggleAABBs(context: *anyopaque) void {
     const debug_system = input.getCallbackContext(DebugSystem, context);
+
+    // Toggle the flag in the debug system
     debug_system.draw_aabbs = !debug_system.draw_aabbs;
-    std.debug.print("AABBs: {}\n", .{debug_system.draw_aabbs});
+
+    // Direct logging for visibility
+    std.debug.print("AABBs toggle pressed: now {}\n", .{debug_system.draw_aabbs});
 }
 
 fn onToggleDiagnostics(context: *anyopaque) void {
@@ -456,6 +627,7 @@ pub const DebugUtils = struct {
     /// Draw on-screen debug information
     pub fn drawDebugInfo(engine: anytype, x: i32, y: i32, color: rl.Color) void {
         var debug_system = DebugSystem.init();
-        debug_system.drawDebugInfo(engine, x, y, color);
+        // Forward to the new method that returns position
+        _ = debug_system.drawDebugInfo(engine, x, y, color);
     }
 };

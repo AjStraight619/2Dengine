@@ -208,6 +208,10 @@ pub fn build(b: *std.Build) void {
         .{ .name = "rotation", .path = "examples/rotation/main.zig" },
     };
 
+    // Create a map to store all example executables for the dynamic run-example command
+    var example_exes = std.StringHashMap(*std.Build.Step.Run).init(b.allocator);
+    defer example_exes.deinit();
+
     for (examples) |example| {
         // Create a module for this example
         const example_mod = b.createModule(.{
@@ -244,7 +248,56 @@ pub fn build(b: *std.Build) void {
         const run_example_step = b.step(b.fmt("run-{s}", .{example.name}), b.fmt("Run the {s} example", .{example.name}));
         run_example_step.dependOn(&run_example_cmd.step);
 
+        // Store the run command in the map for later use
+        example_exes.put(example.name, run_example_cmd) catch @panic("OOM");
+
         // Add this example to the general examples step
         examples_step.dependOn(&example_exe.step);
+    }
+
+    // Create a dynamic example runner that handles `zig build run-example -- example_name`
+    const run_example_step = b.step("run-example", "Run a specific example (specify with -- example_name)");
+
+    // Add a special custom step to handle the example name from command line args
+    const run_dynamic_example = b.addSystemCommand(&.{"echo"});
+
+    if (b.args) |args| {
+        if (args.len > 0) {
+            const example_name = args[0];
+
+            // Check if the example exists in our map
+            if (example_exes.get(example_name)) |example_run_cmd| {
+                // Replace the echo command with the actual example run step
+                run_example_step.dependOn(&example_run_cmd.step);
+
+                // If args were provided beyond the example name, pass them to the example
+                if (args.len > 1) {
+                    for (args[1..]) |arg| {
+                        example_run_cmd.addArg(arg);
+                    }
+                }
+            } else {
+                // Example not found - show available examples
+                run_dynamic_example.setName(b.fmt("Example '{s}' not found. Available examples:", .{example_name}));
+                var example_iter = example_exes.iterator();
+                while (example_iter.next()) |entry| {
+                    run_dynamic_example.addArgs(&.{entry.key_ptr.*});
+                }
+                run_example_step.dependOn(&run_dynamic_example.step);
+            }
+        } else {
+            // No example specified - show usage
+            run_dynamic_example.setName("Usage: zig build run-example -- example_name");
+            run_dynamic_example.addArg("Available examples:");
+            var example_iter = example_exes.iterator();
+            while (example_iter.next()) |entry| {
+                run_dynamic_example.addArgs(&.{entry.key_ptr.*});
+            }
+            run_example_step.dependOn(&run_dynamic_example.step);
+        }
+    } else {
+        // No args at all - show usage
+        run_dynamic_example.setName("Usage: zig build run-example -- example_name");
+        run_example_step.dependOn(&run_dynamic_example.step);
     }
 }

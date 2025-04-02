@@ -70,6 +70,9 @@ pub const Engine = struct {
         try debug_system.setupInputBindings(input_manager);
         try debug_system.setupCallbacks(input_manager, &engine);
 
+        // Make sure everything is in sync
+        engine.syncDebugState();
+
         return engine;
     }
 
@@ -139,34 +142,82 @@ pub const Engine = struct {
             std.debug.print("Error processing input: {}\n", .{err});
         };
 
+        // Process debug keys directly
+        self.debug_system.processDebugKeys(self);
+
         // Update debug system
         self.debug_system.update();
 
-        // Sync debug settings with engine/renderer
-        self.debug_system.syncWithEngine(self);
+        // Make sure debug system and engine are in sync
+        self.syncDebugState();
+
+        // Force the renderer to reflect the debug system flags
+        self.physics_renderer.debug_mode = self.debug_mode;
+        self.physics_renderer.draw_velocities = self.debug_system.draw_velocities;
+        self.physics_renderer.draw_forces = self.debug_system.draw_forces;
+        self.physics_renderer.draw_normals = self.debug_system.draw_normals;
+        self.physics_renderer.draw_aabbs = self.debug_system.draw_aabbs;
+    }
+
+    // Synchronize debug flags between engine and debug system
+    pub fn syncDebugState(self: *Engine) void {
+        // Keep debug_mode synchronized between engine and debug system first
+        self.debug_system.debug_mode = self.debug_mode;
+        self.debug_system.show_debug_overlay = self.show_debug_overlay;
+
+        // Make sure all debug visualization flags are off when debug mode is off
+        if (!self.debug_mode) {
+            // When debug is off, all visualizations should be off
+            self.physics_renderer.draw_forces = false;
+            self.physics_renderer.draw_velocities = false;
+            self.physics_renderer.draw_normals = false;
+            self.physics_renderer.draw_aabbs = false;
+            self.debug_system.draw_forces = false;
+            self.debug_system.draw_velocities = false;
+            self.debug_system.draw_normals = false;
+            self.debug_system.draw_aabbs = false;
+        } else {
+            // When debug mode is on, sync visibility flags in both directions
+            // This ensures toggles work regardless of where they're triggered
+
+            // Look at all four combinations and take the most "active" state
+            // This ensures if a flag is ON anywhere, it propagates everywhere
+            self.physics_renderer.draw_forces = self.physics_renderer.draw_forces or self.debug_system.draw_forces;
+            self.physics_renderer.draw_velocities = self.physics_renderer.draw_velocities or self.debug_system.draw_velocities;
+            self.physics_renderer.draw_normals = self.physics_renderer.draw_normals or self.debug_system.draw_normals;
+            self.physics_renderer.draw_aabbs = self.physics_renderer.draw_aabbs or self.debug_system.draw_aabbs;
+
+            // Now sync back to debug system
+            self.debug_system.draw_forces = self.physics_renderer.draw_forces;
+            self.debug_system.draw_velocities = self.physics_renderer.draw_velocities;
+            self.debug_system.draw_normals = self.physics_renderer.draw_normals;
+            self.debug_system.draw_aabbs = self.physics_renderer.draw_aabbs;
+        }
     }
 
     pub fn render(self: *Engine) void {
-        // Render physics world
+        // Start the drawing
         rl.beginDrawing();
         defer rl.endDrawing();
 
-        self.physics_renderer.drawGrid(self.window_width, self.window_height, 10, rl.Color.gray);
-
+        // Clear background
         rl.clearBackground(rl.Color.ray_white);
 
-        self.physics_renderer.drawWorld(self.physics_world);
+        // Draw grid first (background)
+        self.physics_renderer.drawGrid(self.window_width, self.window_height, 10, rl.Color.gray);
 
-        // Draw debug overlay if enabled
-        if (self.show_debug_overlay) {
-            self.debug_system.drawDebugInfo(self, 20, 20, rl.Color.dark_gray);
-        } else {
-            renderer.PhysicsRenderer.drawDebugInfo(self.physics_world, self.paused, 20, 20, rl.Color.dark_gray);
-        }
+        // Draw physics objects
+        self.physics_renderer.drawWorld(self.physics_world);
 
         // Draw body debug info when in debug mode
         if (self.debug_mode) {
             self.debug_system.drawAllBodiesDebugInfo(&self.physics_world, rl.Color.white);
+        }
+
+        // Draw debug overlay if enabled - always last so it's on top
+        if (self.show_debug_overlay) {
+            // Use the centralized rendering function
+            self.debug_system.renderAllDebugInfo(self);
         }
     }
 
@@ -176,9 +227,12 @@ pub const Engine = struct {
         // Set up input callbacks
         try self.setupInputCallbacks();
 
+        // Print key bindings for the user
+        self.printKeyBindings();
+
         // Game loop
         while (!self.shouldClose()) {
-            // Process input
+            // Process input and synchronize debug state
             self.processInput();
 
             // Call user input handler
@@ -226,9 +280,27 @@ pub const Engine = struct {
     }
 
     pub fn toggleDebugMode(self: *Engine) void {
+        std.debug.print("DEBUG MODE TOGGLE CALLED\n", .{});
+
+        // Debug the current state
+        std.debug.print("Current state: debug_mode={}, renderer.debug_mode={}\n", .{ self.debug_mode, self.physics_renderer.debug_mode });
+
+        // Simply toggle the debug mode
         self.debug_mode = !self.debug_mode;
-        self.physics_renderer.setDebugMode(self.debug_mode);
-        std.debug.print("Debug mode: {}\n", .{self.debug_mode});
+
+        // Sync to physics renderer
+        self.physics_renderer.debug_mode = self.debug_mode;
+
+        // Sync to debug system
+        self.debug_system.debug_mode = self.debug_mode;
+
+        // When turning debug mode on, also enable the debug overlay
+        if (self.debug_mode) {
+            self.show_debug_overlay = true;
+            self.debug_system.show_debug_overlay = true;
+        }
+
+        std.debug.print("Debug mode is now: {}\n", .{self.debug_mode});
     }
 
     pub fn adjustGravity(self: *Engine, amount: f32) void {
@@ -283,6 +355,12 @@ pub const Engine = struct {
         self.debug_system.draw_normals = true;
         self.debug_system.draw_aabbs = true;
 
+        // Make sure renderer reflects debug settings
+        self.physics_renderer.draw_forces = true;
+        self.physics_renderer.draw_velocities = true;
+        self.physics_renderer.draw_normals = true;
+        self.physics_renderer.draw_aabbs = true;
+
         // Turn on physics debug info
         self.physics_world.setDebugDrawCollisions(true);
         self.physics_world.setDebugDrawContacts(true);
@@ -290,8 +368,27 @@ pub const Engine = struct {
         // Set physics to higher detail for better debugging
         self.setFixedTimeStep(1.0 / 120.0); // 120Hz physics for smoother debugging
 
+        self.printDebugKeyBindings();
+
+        // Run the engine normally with debug enabled
+        return self.run(user_context, handle_input_fn, update_fn);
+    }
+
+    // Display available key bindings to the console
+    pub fn printKeyBindings(self: *Engine) void {
+        _ = self;
+        std.debug.print("\n=== CONTROLS ===\n", .{});
+        std.debug.print("SPACE: Toggle pause\n", .{});
+        std.debug.print("D: Toggle debug mode\n", .{});
+        std.debug.print("O: Toggle debug overlay\n", .{});
+        std.debug.print("ESC: Exit\n", .{});
+    }
+
+    // Display available debug key bindings to the console
+    pub fn printDebugKeyBindings(self: *Engine) void {
+        _ = self;
         std.debug.print("\n=== DEBUG MODE ENABLED ===\n", .{});
-        std.debug.print("Press:\n", .{});
+        std.debug.print("Debug Controls:\n", .{});
         std.debug.print("  D: Toggle debug mode\n", .{});
         std.debug.print("  V: Toggle velocity vectors\n", .{});
         std.debug.print("  F: Toggle force vectors\n", .{});
@@ -300,9 +397,7 @@ pub const Engine = struct {
         std.debug.print("  O: Toggle debug overlay\n", .{});
         std.debug.print("  P: Show performance info\n", .{});
         std.debug.print("  I: Show detailed diagnostics\n", .{});
+        std.debug.print("  L: Toggle collision logging\n", .{});
         std.debug.print("  -/+: Adjust force scale\n", .{});
-
-        // Run the engine normally with debug enabled
-        return self.run(user_context, handle_input_fn, update_fn);
     }
 };

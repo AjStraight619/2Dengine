@@ -15,7 +15,7 @@ pub const DebugRenderer = struct {
     velocity_color: rl.Color = rl.Color.blue,
     force_color: rl.Color = rl.Color.green,
     normal_color: rl.Color = rl.Color.magenta,
-    aabb_color: rl.Color = rl.Color{ .r = 255, .g = 255, .b = 0, .a = 120 }, // Semi-transparent yellow
+    aabb_color: rl.Color = rl.Color{ .r = 255, .g = 255, .b = 0, .a = 120 },
 
     // Draw an AABB for a physics body
     pub fn drawAABB(self: DebugRenderer, body: *phys.RigidBody) void {
@@ -165,20 +165,6 @@ pub const DebugRenderer = struct {
 
         // Draw arrowhead
         drawArrowhead(@intFromFloat(end.x), @intFromFloat(end.y), normal, 10.0, self.normal_color);
-    }
-
-    // Draw debugging information text
-    pub fn drawDebugInfo(world: phys.PhysicsWorld, paused: bool, x: i32, y: i32, color: rl.Color) void {
-        // Draw gravity info
-        rl.drawText(rl.textFormat("Physics Demo - Gravity: %.1f", .{world.gravity.y}), x, y, 20, color);
-
-        // Draw pause status
-        rl.drawText(if (paused) "PAUSED (PRESS SPACE TO RESUME)" else "RUNNING (PRESS SPACE TO PAUSE)", x, y + 30, 20, if (paused) rl.Color.maroon else rl.Color.dark_green);
-
-        // Draw help text
-        rl.drawText("Use UP/DOWN keys to adjust gravity", x, y + 60, 20, color);
-        rl.drawText("Press D to toggle debug mode", x, y + 85, 20, color);
-        rl.drawText("Press L to toggle collision logging", x, y + 110, 20, color);
     }
 
     // Draw a coordinate grid

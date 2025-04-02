@@ -33,14 +33,20 @@ pub const ExampleDebugHelper = struct {
         // Always show forces in examples by default
         self.engine.debug_system.draw_forces = true;
         self.engine.physics_renderer.draw_forces = true;
+        self.show_forces = true;
 
         // Always show velocities in examples by default
         self.engine.debug_system.draw_velocities = true;
         self.engine.physics_renderer.draw_velocities = true;
+        self.show_velocities = true;
     }
 
     // Process example-specific input
+    // Note: For D and O keys, defer to the main debug system to avoid conflicts
     pub fn processInput(self: *ExampleDebugHelper) void {
+        // Only process debug visualization toggles when debug mode is enabled
+        if (!self.engine.debug_mode) return;
+
         // Force visualization - F key
         if (rl.isKeyPressed(rl.KeyboardKey.f)) {
             self.toggleForceVisualization();
@@ -55,10 +61,16 @@ pub const ExampleDebugHelper = struct {
         if (rl.isKeyPressed(rl.KeyboardKey.r)) {
             self.resetAllForces();
         }
+
+        // Note: We don't handle D and O keys here anymore
+        // Let the main debug system handle those
     }
 
     // Toggle force visualization
     pub fn toggleForceVisualization(self: *ExampleDebugHelper) void {
+        // Only toggle when debug mode is enabled
+        if (!self.engine.debug_mode) return;
+
         self.show_forces = !self.show_forces;
         self.engine.debug_system.draw_forces = self.show_forces;
         self.engine.physics_renderer.draw_forces = self.show_forces;
@@ -67,6 +79,9 @@ pub const ExampleDebugHelper = struct {
 
     // Toggle velocity visualization
     pub fn toggleVelocityVisualization(self: *ExampleDebugHelper) void {
+        // Only toggle when debug mode is enabled
+        if (!self.engine.debug_mode) return;
+
         self.show_velocities = !self.show_velocities;
         self.engine.debug_system.draw_velocities = self.show_velocities;
         self.engine.physics_renderer.draw_velocities = self.show_velocities;
@@ -94,23 +109,32 @@ pub const ExampleDebugHelper = struct {
         std.debug.print("Applied force: ({d:.2}, {d:.2})\n", .{ force.x, force.y });
     }
 
-    // Draw common debug controls help text
-    pub fn drawDebugControls(self: *ExampleDebugHelper, x: i32, y: i32) void {
-        rl.drawText("Debug Controls:", x, y, 20, rl.Color.dark_gray);
-        rl.drawText("D: Debug Mode | F: Forces | V: Velocities | O: Overlay", x, y + 25, 15, rl.Color.dark_gray);
-        rl.drawText("R: Reset Forces | P: Performance | +/-: Force Scale", x, y + 45, 15, rl.Color.dark_gray);
+    // Draw game-specific debug info at the bottom of the screen
+    pub fn drawCustomDebugInfo(self: *ExampleDebugHelper) void {
+        // Only show custom debug controls when debug mode is on
+        if (!self.engine.debug_mode) return;
 
-        // Show current debug state
-        const state_y = y + 75;
-        rl.drawText("Current Debug State:", x, state_y, 18, rl.Color.black);
+        // Position at the bottom of the screen instead of overlapping with main debug panel
+        const x = 10;
+        const y = 500; // Fixed position near bottom of the screen
 
+        // First draw a semi-transparent background for better text readability
+        rl.drawRectangle(x - 5, y - 5, 780, 90, rl.Color{ .r = 0, .g = 0, .b = 0, .a = 160 });
+
+        // Draw the controls info in a cleaner format
+        rl.drawText("Game Controls:", x, y, 20, rl.Color.white);
+        rl.drawText("R: Reset Forces | SPACE: Jump | LEFT/RIGHT: Move", x + 150, y, 20, rl.Color.white);
+
+        // Draw additional debug status on the next line
         var state_text: [64]u8 = undefined;
-        _ = std.fmt.bufPrintZ(&state_text, "Forces: {s} | Velocities: {s}", .{
+        _ = std.fmt.bufPrintZ(&state_text, "Debug: ON | Forces: {s} | Velocities: {s}", .{
             if (self.show_forces) "ON" else "OFF",
             if (self.show_velocities) "ON" else "OFF",
         }) catch "Error";
+        rl.drawText(@ptrCast(&state_text), x, y + 25, 18, rl.Color.lime);
 
-        rl.drawText(@ptrCast(&state_text), x, state_y + 25, 15, rl.Color.dark_green);
+        // Draw the friction zones info
+        rl.drawText("Friction Test: Press 1-5 to add objects with different friction values", x, y + 55, 18, rl.Color.white);
     }
 
     // Helper to draw force vectors on objects

@@ -267,31 +267,34 @@ fn handleInput(ctx: *anyopaque, eng: *ze.core.Engine) !void {
     _ = eng;
     const self = @as(*DebugContext, @ptrCast(@alignCast(ctx)));
 
-    // Process debug helper input
+    // The engine's input manager will handle all debug key processing
+    // We don't need to call processDebugKeys directly - it was causing key handling conflict
+
+    // Process debug helper input for example-specific debug features
     self.debug_helper.processInput();
 
-    // The rest of the input handling is now done through the InputManager callbacks
+    // Rest of input is handled by InputManager callbacks
 }
 
 // Update callback
 fn update(ctx: *anyopaque, eng: *ze.core.Engine, dt: f32) !void {
     _ = dt;
-    _ = eng; // Engine parameter is provided by the engine but not used directly here
-    const self = @as(*DebugContext, @ptrCast(@alignCast(ctx)));
+    _ = ctx; // Unused now that we've removed the debug helper call
 
-    // Draw instructions
-    rl.drawText("FRICTION TEST: Numbers 1-5: Add objects with different friction", 10, 10, 20, rl.Color.white);
-    rl.drawText("LEFT/RIGHT: Apply force | R: Reset | I: Diagnostics | P: Performance", 10, 35, 20, rl.Color.white);
+    // Draw only main instruction text in a focused location without overlapping UI
+    // Only draw the main instructions if debug overlay is off
+    if (!eng.show_debug_overlay) {
+        rl.drawText("FRICTION TEST: Numbers 1-5: Add objects with different friction", 10, 10, 20, rl.Color.white);
+        rl.drawText("LEFT/RIGHT: Apply force | R: Reset | I: Diagnostics | P: Performance", 10, 35, 20, rl.Color.white);
+    }
 
-    // Draw floor sections with friction values
+    // Always draw the floor friction labels - these are part of the experiment
     rl.drawText("Low Friction (0.1)", 150, 520, 20, rl.Color.red);
     rl.drawText("High Friction (0.9)", 550, 520, 20, rl.Color.green);
 
     // Draw vertical line separating the sections
     rl.drawLine(400, 490, 400, 510, rl.Color.white);
 
-    // Draw debug controls
-    self.debug_helper.drawDebugControls(10, 60);
-
-    // No need to manually draw body debug info - the engine handles it in debug mode
+    // Don't draw custom debug info here - it's duplicating the main debug panel
+    // The standard debug panel already shows all necessary controls
 }

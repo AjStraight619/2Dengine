@@ -198,7 +198,6 @@ pub const BroadPhase = struct {
     }
 };
 
-/// Additional broadphase implementations for different use cases
 /// Spatial Grid - a simpler spatial partitioning system for high performance
 pub const SpatialGrid = struct {
     allocator: std.mem.Allocator,
@@ -237,9 +236,3 @@ pub const SpatialGrid = struct {
 
     // Additional methods would be implemented for a complete spatial grid system
 };
-
-// More advanced spatial partitioning could be added here in future:
-// - Spatial Hashing
-// - Quadtree
-// - Dynamic AABB Tree
-// etc.

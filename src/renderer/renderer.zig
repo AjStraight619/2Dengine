@@ -28,7 +28,20 @@ pub const PhysicsRenderer = struct {
         // Draw the shape itself
         self.shape_renderer.drawBody(body);
 
-        // If in debug mode, draw additional debug information
+        // ALWAYS draw normals and AABBs if enabled, regardless of debug mode
+        if (self.draw_normals) {
+            // Debug output when drawing normals to trace execution
+            std.debug.print("Drawing normals for body at ({d:.1},{d:.1})\n", .{ body.position.x, body.position.y });
+            self.debug_renderer.drawNormalVectors(body);
+        }
+
+        if (self.draw_aabbs) {
+            // Debug output when drawing AABBs to trace execution
+            std.debug.print("Drawing AABB for body at ({d:.1},{d:.1})\n", .{ body.position.x, body.position.y });
+            self.debug_renderer.drawAABB(body);
+        }
+
+        // Only show forces and velocities in debug mode (since they're more performance-intensive)
         if (self.debug_mode) {
             // Draw velocity vector if enabled
             if (self.draw_velocities and body.body_type != .static) {
@@ -38,16 +51,6 @@ pub const PhysicsRenderer = struct {
             // Draw force vectors if enabled
             if (self.draw_forces and body.body_type != .static) {
                 self.debug_renderer.drawForceVector(body);
-            }
-
-            // Draw normal vectors if enabled
-            if (self.draw_normals) {
-                self.debug_renderer.drawNormalVectors(body);
-            }
-
-            // Draw AABB if enabled
-            if (self.draw_aabbs) {
-                self.debug_renderer.drawAABB(body);
             }
         }
     }
