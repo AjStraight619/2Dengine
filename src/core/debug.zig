@@ -380,9 +380,10 @@ pub const DebugSystem = struct {
     pub fn drawAllBodiesDebugInfo(self: *DebugSystem, world: anytype, _: rl.Color) void {
         _ = self; // Currently unused
 
-        // Use a background and better contrast color for text
-        const text_color = rl.Color.black;
-        const bg_color = rl.Color{ .r = 255, .g = 255, .b = 200, .a = 200 };
+        // Use high contrast colors with no background
+        const velocity_color = rl.Color.black;
+        const awake_color = rl.Color{ .r = 255, .g = 50, .b = 50, .a = 255 }; // Bright red
+        const sleep_color = rl.Color{ .r = 50, .g = 200, .b = 50, .a = 255 }; // Bright green
 
         // Draw velocity and sleep status for each dynamic body
         for (world.bodies.items) |body| {
@@ -391,26 +392,14 @@ pub const DebugSystem = struct {
                 const screen_pos_x = @as(i32, @intFromFloat(body.position.x));
                 const screen_pos_y = @as(i32, @intFromFloat(body.position.y)) - 25;
 
-                // Calculate text dimensions for background
-                const text_width = 100; // Approximate width
-                const text_height = 20; // Approximate height
-
-                // Draw a background for better readability
-                rl.drawRectangle(screen_pos_x - 55, screen_pos_y - 20, text_width, text_height * 3, bg_color);
-
-                // Draw velocity
                 var pos_text_buf: [64]u8 = undefined;
                 const pos_text = std.fmt.bufPrintZ(&pos_text_buf, "v=({d:.1},{d:.1})", .{ body.velocity.x, body.velocity.y }) catch "??";
-                rl.drawText(@ptrCast(pos_text), screen_pos_x - 50, screen_pos_y, 15, text_color);
+                rl.drawText(@ptrCast(pos_text), screen_pos_x - 50, screen_pos_y, 15, velocity_color);
 
-                // Draw sleep status
+                // Draw sleep status with high contrast - NO BACKGROUND
                 const sleep_text = if (body.is_sleeping) "SLEEPING" else "AWAKE";
-                // Define custom colors since dark_green and dark_red aren't available
-                const sleep_color = if (body.is_sleeping)
-                    rl.Color{ .r = 0, .g = 120, .b = 0, .a = 255 } // Custom dark green
-                else
-                    rl.Color{ .r = 180, .g = 0, .b = 0, .a = 255 }; // Custom dark red
-                rl.drawText(sleep_text, screen_pos_x - 30, screen_pos_y - 15, 15, sleep_color);
+                const text_color = if (body.is_sleeping) sleep_color else awake_color;
+                rl.drawText(sleep_text, screen_pos_x - 30, screen_pos_y - 15, 15, text_color);
 
                 // No need to draw frames to sleep count - reduce info overload
             }
