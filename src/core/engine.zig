@@ -265,6 +265,31 @@ pub const Engine = struct {
     }
 
     pub fn deinit(self: *Engine) void {
+        // Log all sleeping bodies before exiting
+        std.debug.print("\n=== SLEEP STATE AT EXIT ===\n", .{});
+
+        var total_bodies: usize = 0;
+        var sleeping_bodies: usize = 0;
+        var dynamic_bodies: usize = 0;
+
+        for (self.physics_world.bodies.items) |body| {
+            total_bodies += 1;
+
+            if (body.body_type == .dynamic) {
+                dynamic_bodies += 1;
+
+                if (body.is_sleeping) {
+                    sleeping_bodies += 1;
+                    std.debug.print("SLEEPING: Body at ({d:.1}, {d:.1}) - vel=({d:.4}, {d:.4}), type={any}\n", .{ body.position.x, body.position.y, body.velocity.x, body.velocity.y, body.shape });
+                } else {
+                    std.debug.print("AWAKE: Body at ({d:.1}, {d:.1}) - vel=({d:.4}, {d:.4}), low_velocity_frames={d}\n", .{ body.position.x, body.position.y, body.velocity.x, body.velocity.y, body.low_velocity_frames });
+                }
+            }
+        }
+
+        std.debug.print("Sleep summary: {d}/{d} dynamic bodies sleeping ({d}% of total {d} bodies)\n", .{ sleeping_bodies, dynamic_bodies, if (dynamic_bodies > 0) sleeping_bodies * 100 / dynamic_bodies else 0, total_bodies });
+
+        // Perform regular cleanup
         self.input_manager.deinit();
         self.physics_world.deinit();
         rl.closeWindow();
